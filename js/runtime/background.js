@@ -1,7 +1,6 @@
 import Sprite from '../base/sprite';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from '../render';
 
-const BACKGROUND_IMAGE_SRC = 'images/bg.jpg';
 const BACKGROUND_WIDTH = 512;
 const BACKGROUND_HEIGHT = 512;
 const BACKGROUND_SPEED = 2;
@@ -12,7 +11,7 @@ const BACKGROUND_SPEED = 2;
  */
 export default class BackGround extends Sprite {
   constructor() {
-    super(BACKGROUND_IMAGE_SRC, BACKGROUND_WIDTH, BACKGROUND_HEIGHT);
+    super('', BACKGROUND_WIDTH, BACKGROUND_HEIGHT);
     this.top = 0;
   }
 
@@ -38,17 +37,18 @@ export default class BackGround extends Sprite {
   render(ctx) {
     // 绘制深色渐变背景
     const gradient = ctx.createLinearGradient(0, 0, 0, SCREEN_HEIGHT);
-    gradient.addColorStop(0, '#000033');
+    gradient.addColorStop(0, '#000011');
+    gradient.addColorStop(0.5, '#000033');
     gradient.addColorStop(1, '#000066');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
-    // 绘制网格线
-    ctx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
-    ctx.lineWidth = 1;
+    // 绘制更明显的网格线
+    ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+    ctx.lineWidth = 2;
     
     // 绘制水平网格线
-    for (let y = 0; y < SCREEN_HEIGHT; y += 30) {
+    for (let y = 0; y < SCREEN_HEIGHT; y += 40) {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(SCREEN_WIDTH, y);
@@ -56,11 +56,21 @@ export default class BackGround extends Sprite {
     }
     
     // 绘制垂直网格线
-    for (let x = 0; x < SCREEN_WIDTH; x += 30) {
+    for (let x = 0; x < SCREEN_WIDTH; x += 40) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, SCREEN_HEIGHT);
       ctx.stroke();
     }
+
+    // 添加中心十字线
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(SCREEN_WIDTH / 2, 0);
+    ctx.lineTo(SCREEN_WIDTH / 2, SCREEN_HEIGHT);
+    ctx.moveTo(0, SCREEN_HEIGHT / 2);
+    ctx.lineTo(SCREEN_WIDTH, SCREEN_HEIGHT / 2);
+    ctx.stroke();
   }
 }

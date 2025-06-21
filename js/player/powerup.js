@@ -42,18 +42,18 @@ export default class PowerUp extends Sprite {
 
     ctx.save();
     
-    // 添加发光效果
+    // 添加更强的发光效果
     ctx.shadowColor = '#00ff00';
-    ctx.shadowBlur = 15;
+    ctx.shadowBlur = 30;
     
     const centerX = this.x + this.width / 2;
     const centerY = this.y + this.height / 2;
     const radius = Math.min(this.width, this.height) / 2;
     
-    // 绘制星形宝物
+    // 绘制正十二边形宝物
     ctx.beginPath();
-    for (let i = 0; i < 5; i++) {
-      const angle = (i * 2 * Math.PI) / 5 - Math.PI / 2;
+    for (let i = 0; i < 12; i++) {
+      const angle = (i * 2 * Math.PI) / 12 - Math.PI / 2;
       const x = centerX + radius * Math.cos(angle);
       const y = centerY + radius * Math.sin(angle);
       if (i === 0) {
@@ -61,22 +61,23 @@ export default class PowerUp extends Sprite {
       } else {
         ctx.lineTo(x, y);
       }
-      
-      const innerAngle = angle + Math.PI / 5;
-      const innerX = centerX + radius * 0.4 * Math.cos(innerAngle);
-      const innerY = centerY + radius * 0.4 * Math.sin(innerAngle);
-      ctx.lineTo(innerX, innerY);
     }
     ctx.closePath();
     
-    // 填充渐变
+    // 填充更鲜艳的渐变
     const gradient = ctx.createRadialGradient(
       centerX, centerY, 0,
       centerX, centerY, radius
     );
     gradient.addColorStop(0, '#00ff00');
-    gradient.addColorStop(1, '#006600');
+    gradient.addColorStop(0.5, '#00cc00');
+    gradient.addColorStop(1, '#008800');
     ctx.fillStyle = gradient;
+    ctx.fill();
+    
+    // 添加内部高光
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.fill();
     
     ctx.restore();

@@ -43,46 +43,94 @@ export default class Animation extends Sprite {
       const centerX = this.x + this.width / 2;
       const centerY = this.y + this.height / 2;
       const radius = Math.min(this.width, this.height) * (this.index / this.count);
+      const progress = this.index / this.count;
       
-      // 绘制爆炸效果
+      // 绘制精细的爆炸效果
       ctx.save();
       
-      // 添加发光效果
+      // 添加更强的发光效果
       ctx.shadowColor = '#ff6600';
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = 50;
       
-      // 绘制爆炸粒子
-      for (let i = 0; i < 8; i++) {
-        const angle = (i * Math.PI) / 4;
-        const x = centerX + radius * Math.cos(angle);
-        const y = centerY + radius * Math.sin(angle);
-        
-        // 绘制粒子
-        ctx.beginPath();
-        ctx.arc(x, y, radius * 0.2, 0, Math.PI * 2);
-        
-        // 填充渐变
-        const gradient = ctx.createRadialGradient(
-          x, y, 0,
-          x, y, radius * 0.2
-        );
-        gradient.addColorStop(0, '#ffff00');
-        gradient.addColorStop(1, '#ff6600');
-        ctx.fillStyle = gradient;
-        ctx.fill();
-      }
+      // 绘制多层爆炸粒子
+      const particleLayers = [
+        { count: 24, radius: radius * 0.8, color: ['#ffff00', '#ffdd00', '#ffaa00'] },
+        { count: 18, radius: radius * 1.2, color: ['#ff8800', '#ff6600', '#ff4400'] },
+        { count: 12, radius: radius * 1.6, color: ['#ff2200', '#ff0000', '#cc0000'] }
+      ];
       
-      // 绘制中心圆
+      particleLayers.forEach((layer, layerIndex) => {
+        for (let i = 0; i < layer.count; i++) {
+          const angle = (i * Math.PI * 2) / layer.count;
+          const x = centerX + layer.radius * Math.cos(angle);
+          const y = centerY + layer.radius * Math.sin(angle);
+          
+          // 粒子大小随进度变化
+          const particleSize = radius * 0.08 * (1 - progress * 0.5);
+          
+          // 绘制粒子
+          ctx.beginPath();
+          ctx.arc(x, y, particleSize, 0, Math.PI * 2);
+          
+          // 填充渐变
+          const gradient = ctx.createRadialGradient(
+            x, y, 0,
+            x, y, particleSize
+          );
+          gradient.addColorStop(0, layer.color[0]);
+          gradient.addColorStop(0.4, layer.color[1]);
+          gradient.addColorStop(0.8, layer.color[2]);
+          gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+          ctx.fillStyle = gradient;
+          ctx.fill();
+        }
+      });
+      
+      // 绘制中心爆炸核心
       ctx.beginPath();
-      ctx.arc(centerX, centerY, radius * 0.3, 0, Math.PI * 2);
+      ctx.arc(centerX, centerY, radius * 0.6, 0, Math.PI * 2);
       const centerGradient = ctx.createRadialGradient(
         centerX, centerY, 0,
-        centerX, centerY, radius * 0.3
+        centerX, centerY, radius * 0.6
       );
       centerGradient.addColorStop(0, '#ffffff');
-      centerGradient.addColorStop(1, '#ff6600');
+      centerGradient.addColorStop(0.1, '#ffff00');
+      centerGradient.addColorStop(0.3, '#ffdd00');
+      centerGradient.addColorStop(0.6, '#ff8800');
+      centerGradient.addColorStop(0.9, '#ff4400');
+      centerGradient.addColorStop(1, '#ff0000');
       ctx.fillStyle = centerGradient;
       ctx.fill();
+      
+      // 绘制多层爆炸冲击波
+      const shockwaveCount = 3;
+      for (let i = 0; i < shockwaveCount; i++) {
+        const waveRadius = radius * (1.2 + i * 0.3);
+        const waveAlpha = 0.4 * (1 - progress) * (1 - i * 0.2);
+        
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, waveRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${waveAlpha})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      
+      // 绘制火花效果
+      for (let i = 0; i < 8; i++) {
+        const sparkAngle = (i * Math.PI) / 4 + progress * Math.PI;
+        const sparkLength = radius * 0.3;
+        const sparkX1 = centerX + Math.cos(sparkAngle) * radius * 0.8;
+        const sparkY1 = centerY + Math.sin(sparkAngle) * radius * 0.8;
+        const sparkX2 = centerX + Math.cos(sparkAngle) * (radius * 0.8 + sparkLength);
+        const sparkY2 = centerY + Math.sin(sparkAngle) * (radius * 0.8 + sparkLength);
+        
+        ctx.beginPath();
+        ctx.moveTo(sparkX1, sparkY1);
+        ctx.lineTo(sparkX2, sparkY2);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 * (1 - progress)})`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
       
       ctx.restore();
     }
