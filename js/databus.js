@@ -42,6 +42,9 @@ export default class DataBus {
     this.superWeapons = []; // 存储超级武器
     this.isGameOver = false; // 游戏是否结束
     this.lastSuperWeaponTime = 0; // 重置超级武器时间
+    
+    // 清理对象池
+    this.pool.clear();
   }
 
   // 游戏结束
@@ -51,6 +54,42 @@ export default class DataBus {
     if (this.score > this.highestScore) {
       this.highestScore = this.score;
     }
+    
+    // 清理所有对象
+    this.cleanupAllObjects();
+  }
+
+  /**
+   * 清理所有游戏对象
+   */
+  cleanupAllObjects() {
+    // 清理所有数组
+    this.bullets.length = 0;
+    this.enemyBullets.length = 0;
+    this.enemys.length = 0;
+    this.animations.length = 0;
+    this.powerUps.length = 0;
+    this.superWeapons.length = 0;
+    
+    // 清理对象池
+    this.pool.clear();
+  }
+
+  /**
+   * 获取性能统计信息
+   */
+  getPerformanceStats() {
+    return {
+      frame: this.frame,
+      score: this.score,
+      bullets: this.bullets.length,
+      enemyBullets: this.enemyBullets.length,
+      enemys: this.enemys.length,
+      animations: this.animations.length,
+      powerUps: this.powerUps.length,
+      superWeapons: this.superWeapons.length,
+      poolStats: this.pool.getStats()
+    };
   }
 
   /**
@@ -59,8 +98,11 @@ export default class DataBus {
    * @param {Object} enemy - 要回收的敌人对象
    */
   removeEnemy(enemy) {
-    const temp = this.enemys.splice(this.enemys.indexOf(enemy), 1);
-    if (temp) {
+    if (!enemy) return;
+    
+    const index = this.enemys.indexOf(enemy);
+    if (index !== -1) {
+      this.enemys.splice(index, 1);
       this.pool.recover('enemy', enemy); // 回收敌人到对象池
     }
   }
@@ -71,8 +113,11 @@ export default class DataBus {
    * @param {Object} bullet - 要回收的子弹对象
    */
   removeBullets(bullet) {
-    const temp = this.bullets.splice(this.bullets.indexOf(bullet), 1);
-    if (temp) {
+    if (!bullet) return;
+    
+    const index = this.bullets.indexOf(bullet);
+    if (index !== -1) {
+      this.bullets.splice(index, 1);
       this.pool.recover('bullet', bullet); // 回收子弹到对象池
     }
   }
@@ -83,8 +128,11 @@ export default class DataBus {
    * @param {Object} powerUp - 要回收的宝物对象
    */
   removePowerUp(powerUp) {
-    const temp = this.powerUps.splice(this.powerUps.indexOf(powerUp), 1);
-    if (temp) {
+    if (!powerUp) return;
+    
+    const index = this.powerUps.indexOf(powerUp);
+    if (index !== -1) {
+      this.powerUps.splice(index, 1);
       this.pool.recover('powerup', powerUp); // 回收宝物到对象池
     }
   }
@@ -95,8 +143,11 @@ export default class DataBus {
    * @param {Object} superWeapon - 要回收的超级武器对象
    */
   removeSuperWeapon(superWeapon) {
-    const temp = this.superWeapons.splice(this.superWeapons.indexOf(superWeapon), 1);
-    if (temp) {
+    if (!superWeapon) return;
+    
+    const index = this.superWeapons.indexOf(superWeapon);
+    if (index !== -1) {
+      this.superWeapons.splice(index, 1);
       this.pool.recover('superweapon', superWeapon); // 回收超级武器到对象池
     }
   }
@@ -107,8 +158,11 @@ export default class DataBus {
    * @param {Object} enemyBullet - 要回收的敌机子弹对象
    */
   removeEnemyBullet(enemyBullet) {
-    const temp = this.enemyBullets.splice(this.enemyBullets.indexOf(enemyBullet), 1);
-    if (temp) {
+    if (!enemyBullet) return;
+    
+    const index = this.enemyBullets.indexOf(enemyBullet);
+    if (index !== -1) {
+      this.enemyBullets.splice(index, 1);
       this.pool.recover('enemybullet', enemyBullet); // 回收敌机子弹到对象池
     }
   }

@@ -3,7 +3,7 @@ const __ = {
 };
 
 /**
- * 简易的对象池实现
+ * 优化的对象池实现
  * 用于对象的存贮和重复使用
  * 可以有效减少对象创建开销和避免频繁的垃圾回收
  * 提高游戏性能
@@ -11,6 +11,7 @@ const __ = {
 export default class Pool {
   constructor() {
     this[__.poolDic] = {};
+    this.maxPoolSize = 50; // 每个池的最大大小
   }
 
   /**
@@ -38,6 +39,43 @@ export default class Pool {
    * 方便后续继续使用
    */
   recover(name, instance) {
-    this.getPoolBySign(name).push(instance);
+    const pool = this.getPoolBySign(name);
+    
+    // 限制池的大小，避免内存泄漏
+    if (pool.length < this.maxPoolSize) {
+      // 重置对象状态
+      if (instance.reset) {
+        instance.reset();
+      } else {
+        // 通用重置
+        instance.isActive = false;
+        instance.visible = false;
+        if (instance.trailParticles) {
+          instance.trailParticles.length = 0;
+        }
+      }
+      
+      pool.push(instance);
+    }
+  }
+
+  /**
+   * 清理所有对象池
+   */
+  clear() {
+    for (const key in this[__.poolDic]) {
+      this[__.poolDic][key].length = 0;
+    }
+  }
+
+  /**
+   * 获取池的统计信息
+   */
+  getStats() {
+    const stats = {};
+    for (const key in this[__.poolDic]) {
+      stats[key] = this[__.poolDic][key].length;
+    }
+    return stats;
   }
 }

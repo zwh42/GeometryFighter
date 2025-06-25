@@ -1,23 +1,27 @@
 import Animation from '../base/animation';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from '../render';
 import PowerUp from '../player/powerup';
+import deviceAdapter from '../utils/deviceAdapter';
 
+// 获取适配后的敌机基准尺寸
+const enemySize = deviceAdapter.getEnemySize();
+const BASE_ENEMY_SIZE = enemySize.width;
 
-// 敌机类型配置
+// 敌机类型配置 - 使用适配后的尺寸
 const ENEMY_TYPES = [
   {
-    size: 25,  // 小型战斗机
+    size: Math.round(BASE_ENEMY_SIZE * 0.4),  // 小型战斗机
     health: 1,
-    speed: 6, // 速度最快
+    speed: deviceAdapter.adaptSpeed(6), // 速度最快
     color: ['#ff0000', '#cc0000'],
     shape: 'fighter_small',
     score: 1,
     canShoot: false // 小型敌机不能发射导弹
   },
   {
-    size: 35,  // 中型战斗机
+    size: Math.round(BASE_ENEMY_SIZE * 0.6),  // 中型战斗机
     health: 2,
-    speed: 4, // 中等速度
+    speed: deviceAdapter.adaptSpeed(4), // 中等速度
     color: ['#ff4400', '#cc2200'],
     shape: 'fighter_medium',
     score: 2,
@@ -25,9 +29,9 @@ const ENEMY_TYPES = [
     shootInterval: 120
   },
   {
-    size: 45,  // 大型战斗机
+    size: Math.round(BASE_ENEMY_SIZE * 0.75),  // 大型战斗机
     health: 3,
-    speed: 2, // 较慢速度
+    speed: deviceAdapter.adaptSpeed(2), // 较慢速度
     color: ['#ff8800', '#cc6600'],
     shape: 'fighter_large',
     score: 3,
@@ -36,18 +40,18 @@ const ENEMY_TYPES = [
     shootInterval: 90
   },
   {
-    size: 30,  // 轰炸机
+    size: Math.round(BASE_ENEMY_SIZE * 0.5),  // 轰炸机
     health: 2,
-    speed: 3, // 中等偏慢速度
+    speed: deviceAdapter.adaptSpeed(3), // 中等偏慢速度
     color: ['#ff0066', '#cc0044'],
     shape: 'bomber',
     score: 2,
     canShoot: false // 轰炸机不能发射导弹
   },
   {
-    size: 40,  // 重型战斗机
+    size: Math.round(BASE_ENEMY_SIZE * 0.67),  // 重型战斗机
     health: 4,
-    speed: 1, // 最慢速度
+    speed: deviceAdapter.adaptSpeed(1), // 最慢速度
     color: ['#ff6600', '#cc4400'],
     shape: 'heavy_fighter',
     score: 4,
@@ -204,9 +208,6 @@ export default class Enemy extends Animation {
     // 播放销毁动画后移除
     this.playAnimation();
     GameGlobal.musicManager.playExplosion();
-    wx.vibrateShort({
-      type: 'light'
-    });
 
     // 如果是大型敌机，有概率掉落宝物
     if (this.type.size === 40 && Math.random() < this.type.dropRate) {
@@ -271,27 +272,35 @@ export default class Enemy extends Animation {
     const width = this.width;
     const height = this.height;
     
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
     ctx.strokeStyle = this.type.color[0];
     ctx.lineWidth = 2;
     
-    // 机身（对称三角形，机头朝下）
+    // 机身（对称三角形，机头朝下）- 像素化处理
     ctx.beginPath();
-    ctx.moveTo(centerX, this.y + height); // 机头（朝下）
-    ctx.lineTo(centerX - width * 0.3, this.y); // 左后角
-    ctx.lineTo(centerX + width * 0.3, this.y); // 右后角
+    ctx.moveTo(Math.floor(centerX), Math.floor(this.y + height));
+    ctx.lineTo(Math.floor(centerX - width * 0.3), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.3), Math.floor(this.y));
     ctx.closePath();
     ctx.stroke();
     
-    // 机翼（对称三角形）
+    // 机翼（对称三角形）- 像素化处理
     ctx.beginPath();
-    ctx.moveTo(centerX - 2, centerY + 2);
-    ctx.lineTo(centerX - width * 0.4, centerY + 3); // 左翼尖
-    ctx.lineTo(centerX - width * 0.3, centerY - 5);
-    ctx.lineTo(centerX + 2, centerY + 2);
-    ctx.lineTo(centerX + width * 0.4, centerY + 3); // 右翼尖
-    ctx.lineTo(centerX + width * 0.3, centerY - 5);
+    ctx.moveTo(Math.floor(centerX - 2), Math.floor(centerY + 2));
+    ctx.lineTo(Math.floor(centerX - width * 0.4), Math.floor(centerY + 3));
+    ctx.lineTo(Math.floor(centerX - width * 0.3), Math.floor(centerY - 5));
+    ctx.lineTo(Math.floor(centerX + 2), Math.floor(centerY + 2));
+    ctx.lineTo(Math.floor(centerX + width * 0.4), Math.floor(centerY + 3));
+    ctx.lineTo(Math.floor(centerX + width * 0.3), Math.floor(centerY - 5));
     ctx.closePath();
     ctx.stroke();
+    
+    // 添加像素风格的装饰点 - 移到机翼边缘
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.floor(centerX - width * 0.35), Math.floor(centerY - 3), 2, 2);
+    ctx.fillRect(Math.floor(centerX + width * 0.33), Math.floor(centerY - 3), 2, 2);
   }
 
   // 渲染中型战斗机
@@ -299,15 +308,18 @@ export default class Enemy extends Animation {
     const width = this.width;
     const height = this.height;
     
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
     ctx.strokeStyle = this.type.color[0];
     ctx.lineWidth = 2;
     
-    // 机身（对称六边形）
+    // 机身（对称六边形）- 像素化处理
     ctx.beginPath();
     for (let i = 0; i < 6; i++) {
       const angle = (i * Math.PI) / 3;
-      const x = centerX + width * 0.3 * Math.cos(angle);
-      const y = centerY + height * 0.3 * Math.sin(angle);
+      const x = Math.floor(centerX + width * 0.3 * Math.cos(angle));
+      const y = Math.floor(centerY + height * 0.3 * Math.sin(angle));
       if (i === 0) {
         ctx.moveTo(x, y);
       } else {
@@ -317,16 +329,21 @@ export default class Enemy extends Animation {
     ctx.closePath();
     ctx.stroke();
     
-    // 机翼（对称三角形）
+    // 机翼（对称三角形）- 像素化处理
     ctx.beginPath();
-    ctx.moveTo(centerX - 3, centerY + 2);
-    ctx.lineTo(centerX - width * 0.4, centerY + 4); // 左翼尖
-    ctx.lineTo(centerX - width * 0.35, centerY - 6);
-    ctx.lineTo(centerX + 3, centerY + 2);
-    ctx.lineTo(centerX + width * 0.4, centerY + 4); // 右翼尖
-    ctx.lineTo(centerX + width * 0.35, centerY - 6);
+    ctx.moveTo(Math.floor(centerX - 3), Math.floor(centerY + 2));
+    ctx.lineTo(Math.floor(centerX - width * 0.4), Math.floor(centerY + 4));
+    ctx.lineTo(Math.floor(centerX - width * 0.35), Math.floor(centerY - 6));
+    ctx.lineTo(Math.floor(centerX + 3), Math.floor(centerY + 2));
+    ctx.lineTo(Math.floor(centerX + width * 0.4), Math.floor(centerY + 4));
+    ctx.lineTo(Math.floor(centerX + width * 0.35), Math.floor(centerY - 6));
     ctx.closePath();
     ctx.stroke();
+    
+    // 添加像素风格的装饰点 - 移到机翼边缘
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.floor(centerX - width * 0.38), Math.floor(centerY - 4), 2, 2);
+    ctx.fillRect(Math.floor(centerX + width * 0.36), Math.floor(centerY - 4), 2, 2);
   }
 
   // 渲染大型战斗机
@@ -334,33 +351,42 @@ export default class Enemy extends Animation {
     const width = this.width;
     const height = this.height;
     
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
     ctx.strokeStyle = this.type.color[0];
     ctx.lineWidth = 2;
     
-    // 机身（对称矩形）
+    // 机身（对称矩形）- 像素化处理
     ctx.beginPath();
-    ctx.rect(centerX - width * 0.3, centerY - height * 0.3, width * 0.6, height * 0.6);
+    ctx.rect(Math.floor(centerX - width * 0.3), Math.floor(centerY - height * 0.3), 
+             Math.floor(width * 0.6), Math.floor(height * 0.6));
     ctx.stroke();
     
-    // 机翼（对称大三角形）
+    // 机翼（对称大三角形）- 像素化处理
     ctx.beginPath();
-    ctx.moveTo(centerX - 4, centerY + 3);
-    ctx.lineTo(centerX - width * 0.5, centerY + 5); // 左翼尖
-    ctx.lineTo(centerX - width * 0.4, centerY - 8);
-    ctx.lineTo(centerX + 4, centerY + 3);
-    ctx.lineTo(centerX + width * 0.5, centerY + 5); // 右翼尖
-    ctx.lineTo(centerX + width * 0.4, centerY - 8);
+    ctx.moveTo(Math.floor(centerX - 4), Math.floor(centerY + 3));
+    ctx.lineTo(Math.floor(centerX - width * 0.5), Math.floor(centerY + 5));
+    ctx.lineTo(Math.floor(centerX - width * 0.4), Math.floor(centerY - 8));
+    ctx.lineTo(Math.floor(centerX + 4), Math.floor(centerY + 3));
+    ctx.lineTo(Math.floor(centerX + width * 0.5), Math.floor(centerY + 5));
+    ctx.lineTo(Math.floor(centerX + width * 0.4), Math.floor(centerY - 8));
     ctx.closePath();
     ctx.stroke();
     
-    // 尾翼（对称）
+    // 尾翼（对称）- 像素化处理
     ctx.beginPath();
-    ctx.moveTo(centerX - 3, this.y + 2);
-    ctx.lineTo(centerX - width * 0.2, this.y);
-    ctx.lineTo(centerX + 3, this.y + 2);
-    ctx.lineTo(centerX + width * 0.2, this.y);
+    ctx.moveTo(Math.floor(centerX - 3), Math.floor(this.y + 2));
+    ctx.lineTo(Math.floor(centerX - width * 0.2), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + 3), Math.floor(this.y + 2));
+    ctx.lineTo(Math.floor(centerX + width * 0.2), Math.floor(this.y));
     ctx.closePath();
     ctx.stroke();
+    
+    // 添加像素风格的装饰点 - 移到机翼边缘
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.floor(centerX - width * 0.45), Math.floor(centerY - 6), 2, 2);
+    ctx.fillRect(Math.floor(centerX + width * 0.43), Math.floor(centerY - 6), 2, 2);
   }
 
   // 渲染轰炸机
@@ -368,23 +394,34 @@ export default class Enemy extends Animation {
     const width = this.width;
     const height = this.height;
     
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
     ctx.strokeStyle = this.type.color[0];
     ctx.lineWidth = 2;
     
-    // 机身（对称椭圆形）
+    // 机身（对称椭圆形）- 像素化处理
     ctx.beginPath();
-    ctx.ellipse(centerX, centerY, width * 0.4, height * 0.3, 0, 0, Math.PI * 2);
+    ctx.ellipse(Math.floor(centerX), Math.floor(centerY), 
+                Math.floor(width * 0.4), Math.floor(height * 0.3), 0, 0, Math.PI * 2);
     ctx.stroke();
     
-    // 机翼（对称矩形）
+    // 机翼（对称矩形）- 像素化处理
     ctx.beginPath();
-    ctx.rect(centerX - width * 0.6, centerY - 2, width * 1.2, 4);
+    ctx.rect(Math.floor(centerX - width * 0.6), Math.floor(centerY - 2), 
+             Math.floor(width * 1.2), 4);
     ctx.stroke();
     
-    // 尾翼（对称）
+    // 尾翼（对称）- 像素化处理
     ctx.beginPath();
-    ctx.rect(centerX - width * 0.15, this.y + 2, width * 0.3, 4);
+    ctx.rect(Math.floor(centerX - width * 0.15), Math.floor(this.y + 2), 
+             Math.floor(width * 0.3), 4);
     ctx.stroke();
+    
+    // 添加像素风格的装饰点 - 移到机翼边缘
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.floor(centerX - width * 0.55), Math.floor(centerY - 1), 2, 2);
+    ctx.fillRect(Math.floor(centerX + width * 0.53), Math.floor(centerY - 1), 2, 2);
   }
 
   // 渲染重型战斗机
@@ -392,50 +429,63 @@ export default class Enemy extends Animation {
     const width = this.width;
     const height = this.height;
     
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
     ctx.strokeStyle = this.type.color[0];
     ctx.lineWidth = 2;
     
-    // 机身（对称复杂多边形，机头朝下）
+    // 机身（对称复杂多边形，机头朝下）- 像素化处理
     ctx.beginPath();
-    ctx.moveTo(centerX, this.y + height); // 机头（朝下）
-    ctx.lineTo(centerX - width * 0.3, this.y + height * 0.7); // 左前
-    ctx.lineTo(centerX - width * 0.4, this.y + height * 0.3); // 左中
-    ctx.lineTo(centerX - width * 0.3, this.y); // 左后
-    ctx.lineTo(centerX + width * 0.3, this.y); // 右后
-    ctx.lineTo(centerX + width * 0.4, this.y + height * 0.3); // 右中
-    ctx.lineTo(centerX + width * 0.3, this.y + height * 0.7); // 右前
+    ctx.moveTo(Math.floor(centerX), Math.floor(this.y + height));
+    ctx.lineTo(Math.floor(centerX - width * 0.3), Math.floor(this.y + height * 0.7));
+    ctx.lineTo(Math.floor(centerX - width * 0.4), Math.floor(this.y + height * 0.3));
+    ctx.lineTo(Math.floor(centerX - width * 0.3), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.3), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.4), Math.floor(this.y + height * 0.3));
+    ctx.lineTo(Math.floor(centerX + width * 0.3), Math.floor(this.y + height * 0.7));
     ctx.closePath();
     ctx.stroke();
     
-    // 机翼（对称复杂形状）
+    // 机翼（对称复杂形状）- 像素化处理
     ctx.beginPath();
-    ctx.moveTo(centerX - 5, centerY + 3);
-    ctx.lineTo(centerX - width * 0.6, centerY + 5); // 左翼尖
-    ctx.lineTo(centerX - width * 0.5, centerY - 3);
-    ctx.lineTo(centerX - width * 0.3, centerY - 5);
-    ctx.lineTo(centerX + 5, centerY + 3);
-    ctx.lineTo(centerX + width * 0.6, centerY + 5); // 右翼尖
-    ctx.lineTo(centerX + width * 0.5, centerY - 3);
-    ctx.lineTo(centerX + width * 0.3, centerY - 5);
+    ctx.moveTo(Math.floor(centerX - 5), Math.floor(centerY + 3));
+    ctx.lineTo(Math.floor(centerX - width * 0.6), Math.floor(centerY + 5));
+    ctx.lineTo(Math.floor(centerX - width * 0.5), Math.floor(centerY - 3));
+    ctx.lineTo(Math.floor(centerX - width * 0.3), Math.floor(centerY - 5));
+    ctx.lineTo(Math.floor(centerX + 5), Math.floor(centerY + 3));
+    ctx.lineTo(Math.floor(centerX + width * 0.6), Math.floor(centerY + 5));
+    ctx.lineTo(Math.floor(centerX + width * 0.5), Math.floor(centerY - 3));
+    ctx.lineTo(Math.floor(centerX + width * 0.3), Math.floor(centerY - 5));
     ctx.closePath();
     ctx.stroke();
     
-    // 驾驶舱（中心圆形）
+    // 驾驶舱（中心圆形）- 像素化处理
     ctx.beginPath();
-    ctx.arc(centerX, centerY + 1, 4, 0, Math.PI * 2);
+    ctx.arc(Math.floor(centerX), Math.floor(centerY + 1), 4, 0, Math.PI * 2);
     ctx.stroke();
+    
+    // 添加像素风格的装饰点 - 移到机翼边缘
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.floor(centerX - width * 0.55), Math.floor(centerY - 3), 2, 2);
+    ctx.fillRect(Math.floor(centerX + width * 0.53), Math.floor(centerY - 3), 2, 2);
   }
 
   // 添加尾焰粒子
   addTrailParticle() {
+    // 限制粒子数量，避免性能问题
+    if (this.trailParticles.length >= 5) {
+      return;
+    }
+    
     const particle = {
       x: this.x + this.width / 2,
       y: this.y, // 从敌机机头发射（朝向玩家）
-      vx: (Math.random() - 0.5) * 1, // 减少水平扩散
-      vy: -(Math.random() * 2 + 2), // 向上喷射（朝向玩家方向）
+      vx: (Math.random() - 0.5) * 0.5, // 减少水平扩散
+      vy: -(Math.random() * 1.5 + 1.5), // 向上喷射（朝向玩家方向）
       life: 1.0,
-      decay: 0.03,
-      size: Math.random() * 2 + 1
+      decay: 0.04, // 加快衰减速度
+      size: Math.random() * 1.5 + 0.5 // 减小粒子大小
     };
     this.trailParticles.push(particle);
   }
@@ -454,31 +504,44 @@ export default class Enemy extends Animation {
     }
   }
 
-  // 渲染尾焰粒子
+  // 渲染尾焰粒子 - 优化版本
   renderTrailParticles(ctx) {
+    if (this.trailParticles.length === 0) {
+      return;
+    }
+    
     ctx.save();
     
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
+    // 批量渲染粒子，减少状态切换
     for (const particle of this.trailParticles) {
       const alpha = particle.life;
-      const size = particle.size * particle.life;
+      const size = Math.floor(particle.size * particle.life);
       
-      // 绘制敌机尾焰粒子（红色系）
-      ctx.globalAlpha = alpha;
-      ctx.shadowColor = '#ff0000';
-      ctx.shadowBlur = 8;
+      // 像素风格渲染，使用方形粒子
+      ctx.globalAlpha = alpha * 0.7;
+      ctx.fillStyle = '#ff0000';
       
-      ctx.beginPath();
-      ctx.arc(particle.x, particle.y, size, 0, Math.PI * 2);
-      
-      const gradient = ctx.createRadialGradient(
-        particle.x, particle.y, 0,
-        particle.x, particle.y, size
+      // 绘制像素风格的方形粒子
+      ctx.fillRect(
+        Math.floor(particle.x - size / 2), 
+        Math.floor(particle.y - size / 2), 
+        size, 
+        size
       );
-      gradient.addColorStop(0, '#ff0000');
-      gradient.addColorStop(0.5, '#cc0000');
-      gradient.addColorStop(1, 'rgba(204, 0, 0, 0)');
-      ctx.fillStyle = gradient;
-      ctx.fill();
+      
+      // 添加像素风格的高光
+      if (size > 1) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(
+          Math.floor(particle.x - size / 2), 
+          Math.floor(particle.y - size / 2), 
+          1, 
+          1
+        );
+      }
     }
     
     ctx.restore();

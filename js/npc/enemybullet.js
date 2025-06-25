@@ -1,15 +1,16 @@
 import Sprite from '../base/sprite';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from '../render';
+import deviceAdapter from '../utils/deviceAdapter';
 
-const ENEMY_BULLET_WIDTH = 6;
-const ENEMY_BULLET_HEIGHT = 12;
-const ENEMY_BULLET_SPEED = 3;
+// 获取适配后的敌机子弹尺寸
+const enemyBulletSize = deviceAdapter.getEnemyBulletSize();
+const ENEMY_BULLET_WIDTH = enemyBulletSize.width;
+const ENEMY_BULLET_HEIGHT = enemyBulletSize.height;
+const ENEMY_BULLET_SPEED = deviceAdapter.adaptSpeed(3);
 
 export default class EnemyBullet extends Sprite {
   constructor() {
     super('', ENEMY_BULLET_WIDTH, ENEMY_BULLET_HEIGHT);
-    // 尾焰粒子系统
-    this.trailParticles = [];
   }
 
   init(x, y) {
@@ -20,64 +21,6 @@ export default class EnemyBullet extends Sprite {
     this.visible = true;
   }
 
-  // 添加尾焰粒子
-  addTrailParticle() {
-    const particle = {
-      x: this.x + this.width / 2,
-      y: this.y + this.height / 2,
-      vx: (Math.random() - 0.5) * 1,
-      vy: (Math.random() - 0.5) * 1,
-      life: 1.0,
-      decay: 0.05,
-      size: Math.random() * 2 + 1
-    };
-    this.trailParticles.push(particle);
-  }
-
-  // 更新尾焰粒子
-  updateTrailParticles() {
-    for (let i = this.trailParticles.length - 1; i >= 0; i--) {
-      const particle = this.trailParticles[i];
-      particle.x += particle.vx;
-      particle.y += particle.vy;
-      particle.life -= particle.decay;
-      
-      if (particle.life <= 0) {
-        this.trailParticles.splice(i, 1);
-      }
-    }
-  }
-
-  // 渲染尾焰粒子
-  renderTrailParticles(ctx) {
-    ctx.save();
-    
-    for (const particle of this.trailParticles) {
-      const alpha = particle.life;
-      const size = particle.size * particle.life;
-      
-      // 绘制尾焰粒子
-      ctx.globalAlpha = alpha;
-      ctx.shadowColor = '#ff0000';
-      ctx.shadowBlur = 8;
-      
-      ctx.beginPath();
-      ctx.arc(particle.x, particle.y, size, 0, Math.PI * 2);
-      
-      const gradient = ctx.createRadialGradient(
-        particle.x, particle.y, 0,
-        particle.x, particle.y, size
-      );
-      gradient.addColorStop(0, '#ff0000');
-      gradient.addColorStop(0.5, '#ff4400');
-      gradient.addColorStop(1, 'rgba(255, 68, 0, 0)');
-      ctx.fillStyle = gradient;
-      ctx.fill();
-    }
-    
-    ctx.restore();
-  }
-
   update() {
     if (GameGlobal.databus.isGameOver) {
       return;
@@ -85,12 +28,6 @@ export default class EnemyBullet extends Sprite {
 
     // 直线下落
     this.y += this.speed;
-
-    // 添加尾焰粒子
-    this.addTrailParticle();
-    
-    // 更新尾焰粒子
-    this.updateTrailParticles();
 
     // 超出屏幕外销毁
     if (this.y > SCREEN_HEIGHT || 
@@ -109,32 +46,60 @@ export default class EnemyBullet extends Sprite {
   render(ctx) {
     if (!this.visible) return;
 
-    // 先渲染尾焰粒子
-    this.renderTrailParticles(ctx);
-
     ctx.save();
     
-    // 添加发光效果
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
+    // 添加Geometry Wars风格的发光效果
     ctx.shadowColor = '#ff0000';
     ctx.shadowBlur = 15;
     
-    // 绘制敌机子弹（三角形）
+    const centerX = Math.floor(this.x + this.width / 2);
+    const centerY = Math.floor(this.y + this.height / 2);
+    
+    // 绘制锐角形状的敌机子弹 - Geometry Wars风格
     ctx.beginPath();
-    ctx.moveTo(this.x + this.width / 2, this.y);
-    ctx.lineTo(this.x, this.y + this.height);
-    ctx.lineTo(this.x + this.width, this.y + this.height);
+    
+    // 计算锐角的两条边（指向下方）
+    const angle = Math.PI / 2; // 向下
+    const length = this.height;
+    const width = this.width;
+    
+    // 锐角的顶点（指向下方）
+    const tipX = centerX;
+    const tipY = Math.floor(this.y + this.height);
+    
+    // 锐角的两条边
+    const leftAngle = angle + Math.PI / 6; // 30度角
+    const rightAngle = angle - Math.PI / 6; // -30度角
+    
+    const leftX = Math.floor(centerX + Math.sin(leftAngle) * width / 2);
+    const leftY = Math.floor(centerY + Math.cos(leftAngle) * width / 2);
+    
+    const rightX = Math.floor(centerX + Math.sin(rightAngle) * width / 2);
+    const rightY = Math.floor(centerY + Math.cos(rightAngle) * width / 2);
+    
+    // 绘制锐角形状
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(leftX, leftY);
+    ctx.lineTo(rightX, rightY);
     ctx.closePath();
     
-    // 填充渐变
-    const gradient = ctx.createLinearGradient(
-      this.x, this.y,
-      this.x + this.width, this.y + this.height
-    );
-    gradient.addColorStop(0, '#ff0000');
-    gradient.addColorStop(0.5, '#ff4400');
-    gradient.addColorStop(1, '#ff8800');
-    ctx.fillStyle = gradient;
+    // 使用Geometry Wars风格的红色
+    ctx.fillStyle = '#ff0000';
     ctx.fill();
+    
+    // 添加内部高光
+    ctx.fillStyle = '#ffffff';
+    const highlightX = centerX;
+    const highlightY = Math.floor(tipY - 2);
+    ctx.fillRect(highlightX - 1, highlightY - 1, 2, 2);
+    
+    // 添加边框
+    ctx.strokeStyle = '#cc0000';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     
     ctx.restore();
   }

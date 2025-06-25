@@ -1,11 +1,13 @@
 import Animation from '../base/animation';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from '../render';
 import Bullet from './bullet';
+import deviceAdapter from '../utils/deviceAdapter';
 
-// 玩家相关常量设置
-const PLAYER_WIDTH = 44;
-const PLAYER_HEIGHT = 40;
-const PLAYER_SHOOT_INTERVAL = 20;
+// 获取适配后的玩家战机尺寸
+const playerSize = deviceAdapter.getPlayerSize();
+const PLAYER_WIDTH = playerSize.width;
+const PLAYER_HEIGHT = playerSize.height;
+const PLAYER_SHOOT_INTERVAL = deviceAdapter.getShootInterval();
 
 export default class Player extends Animation {
   constructor() {
@@ -65,7 +67,7 @@ export default class Player extends Animation {
    * @return {Boolean}: 用于标识手指是否在飞机上的布尔值
    */
   checkIsFingerOnAir(x, y) {
-    const deviation = 30;
+    const deviation = deviceAdapter.getTouchDeviation();
     return (
       x >= this.x - deviation &&
       y >= this.y - deviation &&
@@ -150,6 +152,9 @@ export default class Player extends Animation {
    * 射击时机由外部决定
    */
   shoot() {
+    // 使用设备适配器获取适配后的子弹速度
+    const bulletSpeed = GameGlobal.deviceAdapter.adaptSpeed(10);
+    
     if (this.spreadMode) {
       // 霰弹模式：发射5发子弹，呈扇形分布
       const angles = [-30, -15, 0, 15, 30];
@@ -158,7 +163,7 @@ export default class Player extends Animation {
         bullet.init(
           this.x + this.width / 2 - bullet.width / 2,
           this.y - 10,
-          10,
+          bulletSpeed,
           angle
         );
         GameGlobal.databus.bullets.push(bullet);
@@ -169,7 +174,7 @@ export default class Player extends Animation {
       bullet.init(
         this.x + this.width / 2 - bullet.width / 2,
         this.y - 10,
-        10
+        bulletSpeed
       );
       GameGlobal.databus.bullets.push(bullet);
     }
@@ -178,14 +183,19 @@ export default class Player extends Animation {
 
   // 添加尾焰粒子
   addTrailParticle() {
+    // 限制粒子数量，避免性能问题
+    if (this.trailParticles.length >= 8) {
+      return;
+    }
+    
     const particle = {
       x: this.x + this.width / 2,
       y: this.y + this.height, // 从战机尾部发射
-      vx: (Math.random() - 0.5) * 1, // 减少水平扩散
-      vy: Math.random() * 2 + 3, // 向下喷射，符合推进器原理
+      vx: (Math.random() - 0.5) * 0.5, // 减少水平扩散
+      vy: Math.random() * 1.5 + 2, // 向下喷射，符合推进器原理
       life: 1.0,
-      decay: 0.02,
-      size: Math.random() * 3 + 2
+      decay: 0.03, // 加快衰减速度
+      size: Math.random() * 2 + 1 // 减小粒子大小
     };
     this.trailParticles.push(particle);
   }
@@ -204,31 +214,44 @@ export default class Player extends Animation {
     }
   }
 
-  // 渲染尾焰粒子
+  // 渲染尾焰粒子 - 优化版本
   renderTrailParticles(ctx) {
+    if (this.trailParticles.length === 0) {
+      return;
+    }
+    
     ctx.save();
     
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
+    // 批量渲染粒子，减少状态切换
     for (const particle of this.trailParticles) {
       const alpha = particle.life;
-      const size = particle.size * particle.life;
+      const size = Math.floor(particle.size * particle.life);
       
-      // 绘制尾焰粒子
-      ctx.globalAlpha = alpha;
-      ctx.shadowColor = '#00ffff';
-      ctx.shadowBlur = 10;
+      // 像素风格渲染，使用方形粒子
+      ctx.globalAlpha = alpha * 0.8;
+      ctx.fillStyle = '#00ffff';
       
-      ctx.beginPath();
-      ctx.arc(particle.x, particle.y, size, 0, Math.PI * 2);
-      
-      const gradient = ctx.createRadialGradient(
-        particle.x, particle.y, 0,
-        particle.x, particle.y, size
+      // 绘制像素风格的方形粒子
+      ctx.fillRect(
+        Math.floor(particle.x - size / 2), 
+        Math.floor(particle.y - size / 2), 
+        size, 
+        size
       );
-      gradient.addColorStop(0, '#00ffff');
-      gradient.addColorStop(0.5, '#0088ff');
-      gradient.addColorStop(1, 'rgba(0, 136, 255, 0)');
-      ctx.fillStyle = gradient;
-      ctx.fill();
+      
+      // 添加像素风格的高光
+      if (size > 1) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(
+          Math.floor(particle.x - size / 2), 
+          Math.floor(particle.y - size / 2), 
+          1, 
+          1
+        );
+      }
     }
     
     ctx.restore();
@@ -285,14 +308,13 @@ export default class Player extends Animation {
   // 渲染血条
   renderHealthBar(ctx) {
     const barWidth = 100;
-    const barHeight = 8;
-    const barX = SCREEN_WIDTH - barWidth - 20;
-    const barY = SCREEN_HEIGHT - 40;
+    const barHeight = 12;
+    const barX = 20;
+    const barY = 20;
     
-    // 计算血量百分比
     const healthPercent = this.health / this.maxHealth;
     
-    // 血量低于30%时的闪烁效果
+    // 闪烁效果
     let shouldBlink = false;
     if (healthPercent <= 0.3) {
       const blinkInterval = 3000;
@@ -305,18 +327,21 @@ export default class Player extends Animation {
       return;
     }
     
-    // 绘制血条背景
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(barX, barY, barWidth, barHeight);
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
     
-    // 绘制血条边框
+    // 绘制血条背景 - 像素化处理
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(Math.floor(barX), Math.floor(barY), Math.floor(barWidth), Math.floor(barHeight));
+    
+    // 绘制血条边框 - 像素化处理
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1;
-    ctx.strokeRect(barX, barY, barWidth, barHeight);
+    ctx.strokeRect(Math.floor(barX), Math.floor(barY), Math.floor(barWidth), Math.floor(barHeight));
     
-    const fillWidth = barWidth * healthPercent;
+    const fillWidth = Math.floor(barWidth * healthPercent);
     
-    // 根据血量选择颜色
+    // 根据血量选择颜色 - 使用更鲜艳的像素风格颜色
     let healthColor;
     if (healthPercent > 0.6) {
       healthColor = '#00ff00';
@@ -326,15 +351,21 @@ export default class Player extends Animation {
       healthColor = '#ff0000';
     }
     
-    // 绘制血量
+    // 绘制血量 - 像素化处理
     ctx.fillStyle = healthColor;
-    ctx.fillRect(barX + 1, barY + 1, fillWidth - 2, barHeight - 2);
+    ctx.fillRect(Math.floor(barX + 1), Math.floor(barY + 1), fillWidth - 2, Math.floor(barHeight - 2));
     
-    // 绘制血量文字
+    // 添加像素风格的装饰
+    if (fillWidth > 4) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.floor(barX + 2), Math.floor(barY + 2), 1, Math.floor(barHeight - 4));
+    }
+    
+    // 绘制血量文字 - 像素化处理
     ctx.fillStyle = '#ffffff';
-    ctx.font = '10px Arial';
+    ctx.font = '10px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(`${Math.ceil(this.health)}%`, barX + barWidth / 2, barY + 6);
+    ctx.fillText(`${Math.ceil(this.health)}%`, Math.floor(barX + barWidth / 2), Math.floor(barY + 9));
     ctx.textAlign = 'left';
   }
 
@@ -374,9 +405,6 @@ export default class Player extends Animation {
     this.isActive = false;
     this.playAnimation();
     GameGlobal.musicManager.playExplosion();
-    wx.vibrateShort({
-      type: 'medium'
-    });
   }
 
   render(ctx) {
@@ -387,6 +415,9 @@ export default class Player extends Animation {
 
     ctx.save();
     
+    // 像素化效果 - 设置图像平滑为false以获得像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
     // 超载模式下的红色闪烁效果
     if (this.overloadMode) {
       const currentTime = Date.now();
@@ -396,95 +427,110 @@ export default class Player extends Animation {
       if (shouldBlink) {
         // 添加红色发光效果
         ctx.shadowColor = '#ff0000';
-        ctx.shadowBlur = 30;
+        ctx.shadowBlur = 20;
       }
     } else {
-      // 正常发光效果
+      // 正常发光效果 - 使用更鲜艳的青色
       ctx.shadowColor = '#00ffff';
-      ctx.shadowBlur = 25;
+      ctx.shadowBlur = 15;
     }
     
     const centerX = this.x + this.width / 2;
     const centerY = this.y + this.height / 2;
     
-    // 绘制科幻前掠翼战机
+    // 绘制像素风格战机 - 使用更鲜艳的颜色和像素化线条
     ctx.strokeStyle = this.overloadMode ? '#ff0000' : '#00ffff';
     ctx.lineWidth = 2;
     
-    // 机身（对称三角形）
+    // 机身（对称三角形）- 像素化处理
     ctx.beginPath();
-    ctx.moveTo(centerX, this.y); // 机头
-    ctx.lineTo(centerX - 10, this.y + this.height); // 左后角（加宽）
-    ctx.lineTo(centerX + 10, this.y + this.height); // 右后角（加宽）
+    ctx.moveTo(Math.floor(centerX), Math.floor(this.y)); // 机头
+    ctx.lineTo(Math.floor(centerX - 10), Math.floor(this.y + this.height)); // 左后角
+    ctx.lineTo(Math.floor(centerX + 10), Math.floor(this.y + this.height)); // 右后角
     ctx.closePath();
     ctx.stroke();
     
-    // 后掠翼（常规战斗机比例，大幅加宽机翼）
+    // 后掠翼 - 像素化处理
     // 左后掠翼
     ctx.beginPath();
-    ctx.moveTo(centerX - 10, centerY - 6); // 左翼根起始点（与机身宽度匹配）
-    ctx.lineTo(centerX - 4, centerY - 9); // 与机身连接线段（增大2倍）
-    ctx.lineTo(centerX - 28, centerY + 24); // 左翼尖（增大后掠翼）
-    ctx.lineTo(centerX - 22, centerY + 12); // 翼根后缘
-    ctx.lineTo(centerX - 12, centerY + 6); // 与机身过渡
-    ctx.lineTo(centerX - 10, centerY + 6); // 左翼根结束点
-    ctx.lineTo(centerX - 10, centerY - 6); // 回到起始点，形成封闭路径
+    ctx.moveTo(Math.floor(centerX - 10), Math.floor(centerY - 6));
+    ctx.lineTo(Math.floor(centerX - 4), Math.floor(centerY - 9));
+    ctx.lineTo(Math.floor(centerX - 28), Math.floor(centerY + 24));
+    ctx.lineTo(Math.floor(centerX - 22), Math.floor(centerY + 12));
+    ctx.lineTo(Math.floor(centerX - 12), Math.floor(centerY + 6));
+    ctx.lineTo(Math.floor(centerX - 10), Math.floor(centerY + 6));
+    ctx.lineTo(Math.floor(centerX - 10), Math.floor(centerY - 6));
     ctx.closePath();
     ctx.stroke();
     
     // 左机翼尾端连接线
     ctx.beginPath();
-    ctx.moveTo(centerX - 22, centerY + 12); // 从翼根后缘开始
-    ctx.lineTo(centerX - 8, centerY + 8); // 连接到机身
+    ctx.moveTo(Math.floor(centerX - 22), Math.floor(centerY + 12));
+    ctx.lineTo(Math.floor(centerX - 8), Math.floor(centerY + 8));
     ctx.stroke();
     
     // 右后掠翼
     ctx.beginPath();
-    ctx.moveTo(centerX + 10, centerY - 6); // 右翼根起始点（与机身宽度匹配）
-    ctx.lineTo(centerX + 4, centerY - 9); // 与机身连接线段（增大2倍）
-    ctx.lineTo(centerX + 28, centerY + 24); // 右翼尖（增大后掠翼）
-    ctx.lineTo(centerX + 22, centerY + 12); // 翼根后缘
-    ctx.lineTo(centerX + 12, centerY + 6); // 与机身过渡
-    ctx.lineTo(centerX + 10, centerY + 6); // 右翼根结束点
-    ctx.lineTo(centerX + 10, centerY - 6); // 回到起始点，形成封闭路径
+    ctx.moveTo(Math.floor(centerX + 10), Math.floor(centerY - 6));
+    ctx.lineTo(Math.floor(centerX + 4), Math.floor(centerY - 9));
+    ctx.lineTo(Math.floor(centerX + 28), Math.floor(centerY + 24));
+    ctx.lineTo(Math.floor(centerX + 22), Math.floor(centerY + 12));
+    ctx.lineTo(Math.floor(centerX + 12), Math.floor(centerY + 6));
+    ctx.lineTo(Math.floor(centerX + 10), Math.floor(centerY + 6));
+    ctx.lineTo(Math.floor(centerX + 10), Math.floor(centerY - 6));
     ctx.closePath();
     ctx.stroke();
     
     // 右机翼尾端连接线
     ctx.beginPath();
-    ctx.moveTo(centerX + 22, centerY + 12); // 从翼根后缘开始
-    ctx.lineTo(centerX + 8, centerY + 8); // 连接到机身
+    ctx.moveTo(Math.floor(centerX + 22), Math.floor(centerY + 12));
+    ctx.lineTo(Math.floor(centerX + 8), Math.floor(centerY + 8));
     ctx.stroke();
     
-    // 尾翼（对称菱形，加宽）
+    // 尾翼（对称菱形）
     // 左尾翼
     ctx.beginPath();
-    ctx.moveTo(centerX - 3, this.y + this.height - 4);
-    ctx.lineTo(centerX - 8, this.y + this.height); // 加宽
-    ctx.lineTo(centerX - 3, this.y + this.height + 4);
-    ctx.lineTo(centerX + 3, this.y + this.height);
+    ctx.moveTo(Math.floor(centerX - 3), Math.floor(this.y + this.height - 4));
+    ctx.lineTo(Math.floor(centerX - 8), Math.floor(this.y + this.height));
+    ctx.lineTo(Math.floor(centerX - 3), Math.floor(this.y + this.height + 4));
+    ctx.lineTo(Math.floor(centerX + 3), Math.floor(this.y + this.height));
     ctx.closePath();
     ctx.stroke();
     
     // 右尾翼
     ctx.beginPath();
-    ctx.moveTo(centerX + 3, this.y + this.height - 4);
-    ctx.lineTo(centerX + 8, this.y + this.height); // 加宽
-    ctx.lineTo(centerX + 3, this.y + this.height + 4);
-    ctx.lineTo(centerX - 3, this.y + this.height);
+    ctx.moveTo(Math.floor(centerX + 3), Math.floor(this.y + this.height - 4));
+    ctx.lineTo(Math.floor(centerX + 8), Math.floor(this.y + this.height));
+    ctx.lineTo(Math.floor(centerX + 3), Math.floor(this.y + this.height + 4));
+    ctx.lineTo(Math.floor(centerX - 3), Math.floor(this.y + this.height));
     ctx.closePath();
     ctx.stroke();
     
-    // 驾驶舱（中心圆形）
+    // 驾驶舱（中心圆形）- 像素化处理
     ctx.beginPath();
-    ctx.arc(centerX, centerY - 1, 3, 0, Math.PI * 2);
+    ctx.arc(Math.floor(centerX), Math.floor(centerY - 1), 3, 0, Math.PI * 2);
     ctx.stroke();
     
-    // 推进器喷嘴（对称，加宽间距）
+    // 推进器喷嘴（对称）
     ctx.beginPath();
-    ctx.arc(centerX - 4, this.y + this.height, 2, 0, Math.PI * 2);
-    ctx.arc(centerX + 4, this.y + this.height, 2, 0, Math.PI * 2);
+    ctx.arc(Math.floor(centerX - 4), Math.floor(this.y + this.height), 2, 0, Math.PI * 2);
+    ctx.arc(Math.floor(centerX + 4), Math.floor(this.y + this.height), 2, 0, Math.PI * 2);
     ctx.stroke();
+    
+    // 添加像素风格的装饰细节
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    
+    // 机身上的像素装饰线
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX - 2), Math.floor(centerY - 3));
+    ctx.lineTo(Math.floor(centerX + 2), Math.floor(centerY - 3));
+    ctx.stroke();
+    
+    // 机翼上的像素装饰点
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.floor(centerX - 24), Math.floor(centerY + 8), 2, 2);
+    ctx.fillRect(Math.floor(centerX + 22), Math.floor(centerY + 8), 2, 2);
     
     ctx.restore();
 

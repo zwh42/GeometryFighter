@@ -30,12 +30,15 @@ export default class GameInfo extends Emitter {
   }
 
   renderGameScore(ctx) {
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
     ctx.fillStyle = '#ffffff';
-    ctx.font = '20px Arial';
+    ctx.font = '16px monospace';
     ctx.fillText(`Score: ${GameGlobal.databus.score}`, 20, SCREEN_HEIGHT - 20);
     
     // 显示最高分
-    ctx.font = '16px Arial';
+    ctx.font = '14px monospace';
     ctx.fillText(`Highest: ${GameGlobal.databus.highestScore || 0}`, 20, SCREEN_HEIGHT - 40);
   }
 
@@ -48,33 +51,36 @@ export default class GameInfo extends Emitter {
   drawGameOverBackground(ctx) {
     ctx.save();
     
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
     // 绘制半透明黑色背景
     ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
     ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     
-    // 绘制几何战争风格的背景网格
+    // 绘制像素风格的背景网格
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.lineWidth = 1;
     
-    // 垂直网格线
-    for (let x = 0; x < SCREEN_WIDTH; x += 40) {
+    // 垂直网格线 - 像素化处理
+    for (let x = 0; x < SCREEN_WIDTH; x += 32) {
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, SCREEN_HEIGHT);
+      ctx.moveTo(Math.floor(x), 0);
+      ctx.lineTo(Math.floor(x), SCREEN_HEIGHT);
       ctx.stroke();
     }
     
-    // 水平网格线
-    for (let y = 0; y < SCREEN_HEIGHT; y += 40) {
+    // 水平网格线 - 像素化处理
+    for (let y = 0; y < SCREEN_HEIGHT; y += 32) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(SCREEN_WIDTH, y);
+      ctx.moveTo(0, Math.floor(y));
+      ctx.lineTo(SCREEN_WIDTH, Math.floor(y));
       ctx.stroke();
     }
     
-    // 绘制中心十字
-    const centerX = SCREEN_WIDTH / 2;
-    const centerY = SCREEN_HEIGHT / 2;
+    // 绘制像素风格的中心十字
+    const centerX = Math.floor(SCREEN_WIDTH / 2);
+    const centerY = Math.floor(SCREEN_HEIGHT / 2);
     const crossSize = 100;
     
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
@@ -93,67 +99,61 @@ export default class GameInfo extends Emitter {
   drawGameOverText(ctx) {
     ctx.save();
     
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
     // 绘制"游戏结束"标题
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 36px Arial';
+    ctx.font = 'bold 24px monospace';
     ctx.textAlign = 'center';
     ctx.shadowColor = '#ff6600';
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur = 10;
     
     ctx.fillText(
       '游戏结束',
-      SCREEN_WIDTH / 2,
-      SCREEN_HEIGHT / 2 - 80
+      Math.floor(SCREEN_WIDTH / 2),
+      Math.floor(SCREEN_HEIGHT / 2 - 80)
     );
     
     // 绘制得分
-    ctx.font = '24px Arial';
-    ctx.shadowBlur = 10;
+    ctx.font = '18px monospace';
+    ctx.shadowBlur = 5;
     ctx.fillText(
       `得分: ${GameGlobal.databus.score}`,
-      SCREEN_WIDTH / 2,
-      SCREEN_HEIGHT / 2 - 30
+      Math.floor(SCREEN_WIDTH / 2),
+      Math.floor(SCREEN_HEIGHT / 2 - 30)
     );
     
-    // 绘制几何装饰元素
-    this.drawGeometricDecorations(ctx);
+    // 绘制像素风格装饰元素
+    this.drawPixelDecorations(ctx);
     
     ctx.restore();
   }
 
-  drawGeometricDecorations(ctx) {
-    const centerX = SCREEN_WIDTH / 2;
-    const centerY = SCREEN_HEIGHT / 2;
+  drawPixelDecorations(ctx) {
+    const centerX = Math.floor(SCREEN_WIDTH / 2);
+    const centerY = Math.floor(SCREEN_HEIGHT / 2);
     
-    // 绘制装饰性几何图形
+    // 绘制像素风格装饰
     ctx.save();
     
-    // 外圈菱形
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY - 120);
-    ctx.lineTo(centerX + 80, centerY - 40);
-    ctx.lineTo(centerX, centerY + 40);
-    ctx.lineTo(centerX - 80, centerY - 40);
-    ctx.closePath();
-    ctx.stroke();
+    // 外圈像素方块
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.fillRect(centerX - 60, centerY - 60, 4, 4);
+    ctx.fillRect(centerX + 56, centerY - 60, 4, 4);
+    ctx.fillRect(centerX - 60, centerY + 56, 4, 4);
+    ctx.fillRect(centerX + 56, centerY + 56, 4, 4);
     
-    // 内圈三角形
-    ctx.strokeStyle = 'rgba(255, 102, 0, 0.5)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY - 60);
-    ctx.lineTo(centerX + 40, centerY + 20);
-    ctx.lineTo(centerX - 40, centerY + 20);
-    ctx.closePath();
-    ctx.stroke();
+    // 内圈像素点
+    ctx.fillStyle = 'rgba(255, 102, 0, 0.5)';
+    ctx.fillRect(centerX - 20, centerY - 20, 2, 2);
+    ctx.fillRect(centerX + 18, centerY - 20, 2, 2);
+    ctx.fillRect(centerX - 20, centerY + 18, 2, 2);
+    ctx.fillRect(centerX + 18, centerY + 18, 2, 2);
     
-    // 中心点
+    // 中心像素点
     ctx.fillStyle = '#ff6600';
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillRect(centerX - 2, centerY - 2, 4, 4);
     
     ctx.restore();
   }
@@ -161,8 +161,11 @@ export default class GameInfo extends Emitter {
   drawRestartButton(ctx) {
     ctx.save();
     
-    const btnX = SCREEN_WIDTH / 2 - 60;
-    const btnY = SCREEN_HEIGHT / 2 + 50;
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
+    const btnX = Math.floor(SCREEN_WIDTH / 2 - 60);
+    const btnY = Math.floor(SCREEN_HEIGHT / 2 + 50);
     const btnWidth = 120;
     const btnHeight = 40;
     
@@ -175,32 +178,29 @@ export default class GameInfo extends Emitter {
     ctx.lineWidth = 2;
     ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
     
-    // 绘制按钮内部几何装饰
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 1;
+    // 绘制像素风格内部装饰
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     
-    // 绘制内部十字
-    const btnCenterX = btnX + btnWidth / 2;
-    const btnCenterY = btnY + btnHeight / 2;
+    // 绘制内部像素点
+    const btnCenterX = Math.floor(btnX + btnWidth / 2);
+    const btnCenterY = Math.floor(btnY + btnHeight / 2);
     
-    ctx.beginPath();
-    ctx.moveTo(btnCenterX - 15, btnCenterY);
-    ctx.lineTo(btnCenterX + 15, btnCenterY);
-    ctx.moveTo(btnCenterX, btnCenterY - 10);
-    ctx.lineTo(btnCenterX, btnCenterY + 10);
-    ctx.stroke();
+    ctx.fillRect(btnCenterX - 8, btnCenterY - 1, 2, 2);
+    ctx.fillRect(btnCenterX + 6, btnCenterY - 1, 2, 2);
+    ctx.fillRect(btnCenterX - 1, btnCenterY - 8, 2, 2);
+    ctx.fillRect(btnCenterX - 1, btnCenterY + 6, 2, 2);
     
     // 绘制按钮文字
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px Arial';
+    ctx.font = 'bold 14px monospace';
     ctx.textAlign = 'center';
     ctx.shadowColor = '#000000';
-    ctx.shadowBlur = 3;
+    ctx.shadowBlur = 2;
     
     ctx.fillText(
       '重新开始',
       btnCenterX,
-      btnCenterY + 6
+      btnCenterY + 5
     );
     
     ctx.restore();
