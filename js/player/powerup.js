@@ -48,9 +48,14 @@ export default class PowerUp extends Sprite {
     // 像素化效果
     ctx.imageSmoothingEnabled = false;
     
-    // 添加像素风格的发光效果
+    // 闪烁光晕效果
+    const currentTime = Date.now();
+    const blinkInterval = 300; // 300ms闪烁间隔
+    const blinkIntensity = 0.5 + 0.5 * Math.sin(currentTime / blinkInterval * Math.PI);
+    
+    // 动态发光效果
     ctx.shadowColor = '#00ff00';
-    ctx.shadowBlur = 15;
+    ctx.shadowBlur = 15 * blinkIntensity;
     
     const centerX = Math.floor(this.x + this.width / 2);
     const centerY = Math.floor(this.y + this.height / 2);
@@ -79,16 +84,9 @@ export default class PowerUp extends Sprite {
     ctx.lineWidth = 1;
     ctx.stroke();
     
-    // 添加像素风格的内部高光
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(centerX - 2, centerY - 2, 4, 4);
-    
-    // 添加像素风格的装饰点
-    ctx.fillStyle = '#00cc00';
-    ctx.fillRect(centerX - radius + 2, centerY - 1, 2, 2);
-    ctx.fillRect(centerX + radius - 4, centerY - 1, 2, 2);
-    ctx.fillRect(centerX - 1, centerY - radius + 2, 2, 2);
-    ctx.fillRect(centerX - 1, centerY + radius - 4, 2, 2);
+    // 添加像素风格内部高光
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.3 * blinkIntensity})`;
+    ctx.fill();
     
     ctx.restore();
   }

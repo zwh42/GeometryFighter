@@ -69,15 +69,16 @@ export function detectDevicePerformance() {
   
   if (isMobile) {
     // 移动设备优化
-    config.MAX_PLAYER_PARTICLES = 4;
-    config.MAX_ENEMY_PARTICLES = 3;
-    config.MAX_BULLET_PARTICLES = 3;
-    config.MAX_ENEMY_BULLET_PARTICLES = 2;
-    config.MAX_ENEMIES = 10;
-    config.MAX_BULLETS = 20;
-    config.MAX_ENEMY_BULLETS = 15;
+    config.MAX_PLAYER_PARTICLES = 2;
+    config.MAX_ENEMY_PARTICLES = 1;
+    config.MAX_BULLET_PARTICLES = 1;
+    config.MAX_ENEMY_BULLET_PARTICLES = 1;
+    config.MAX_ENEMIES = 8;
+    config.MAX_BULLETS = 15;
+    config.MAX_ENEMY_BULLETS = 10;
     config.ENABLE_SHADOWS = false;
     config.ENABLE_GRADIENTS = false;
+    config.ENABLE_PARTICLES = false; // 移动设备禁用粒子
   }
   
   // 检测内存限制 - 微信小程序环境可能没有deviceMemory

@@ -10,15 +10,6 @@ const BASE_ENEMY_SIZE = enemySize.width;
 // 敌机类型配置 - 使用适配后的尺寸
 const ENEMY_TYPES = [
   {
-    size: Math.round(BASE_ENEMY_SIZE * 0.4),  // 小型战斗机
-    health: 1,
-    speed: deviceAdapter.adaptSpeed(6), // 速度最快
-    color: ['#ff0000', '#cc0000'],
-    shape: 'fighter_small',
-    score: 1,
-    canShoot: false // 小型敌机不能发射导弹
-  },
-  {
     size: Math.round(BASE_ENEMY_SIZE * 0.6),  // 中型战斗机
     health: 2,
     speed: deviceAdapter.adaptSpeed(4), // 中等速度
@@ -26,7 +17,8 @@ const ENEMY_TYPES = [
     shape: 'fighter_medium',
     score: 2,
     canShoot: false, // 中型敌机也不能发射导弹
-    shootInterval: 120
+    shootInterval: 120,
+    dropRate: 0.2 // 增加掉落概率
   },
   {
     size: Math.round(BASE_ENEMY_SIZE * 0.75),  // 大型战斗机
@@ -35,7 +27,7 @@ const ENEMY_TYPES = [
     color: ['#ff8800', '#cc6600'],
     shape: 'fighter_large',
     score: 3,
-    dropRate: 0.3,
+    dropRate: 0.4, // 增加掉落概率
     canShoot: true, // 大型敌机可以发射导弹
     shootInterval: 90
   },
@@ -46,7 +38,8 @@ const ENEMY_TYPES = [
     color: ['#ff0066', '#cc0044'],
     shape: 'bomber',
     score: 2,
-    canShoot: false // 轰炸机不能发射导弹
+    canShoot: false, // 轰炸机不能发射导弹
+    dropRate: 0.15 // 增加掉落概率
   },
   {
     size: Math.round(BASE_ENEMY_SIZE * 0.67),  // 重型战斗机
@@ -55,9 +48,41 @@ const ENEMY_TYPES = [
     color: ['#ff6600', '#cc4400'],
     shape: 'heavy_fighter',
     score: 4,
-    dropRate: 0.4,
+    dropRate: 0.5, // 增加掉落概率
     canShoot: true, // 重型战斗机可以发射导弹
     shootInterval: 60
+  },
+  {
+    size: Math.round(BASE_ENEMY_SIZE * 0.45),  // 侦察机
+    health: 1,
+    speed: deviceAdapter.adaptSpeed(8), // 最快速度
+    color: ['#00ff00', '#00cc00'],
+    shape: 'scout',
+    score: 1,
+    canShoot: false, // 侦察机不能发射导弹
+    dropRate: 0.1 // 较低掉落概率
+  },
+  {
+    size: Math.round(BASE_ENEMY_SIZE * 0.55),  // 拦截机
+    health: 2,
+    speed: deviceAdapter.adaptSpeed(5), // 高速
+    color: ['#0088ff', '#0066cc'],
+    shape: 'interceptor',
+    score: 2,
+    canShoot: true, // 拦截机可以发射导弹
+    shootInterval: 80,
+    dropRate: 0.25 // 中等掉落概率
+  },
+  {
+    size: Math.round(BASE_ENEMY_SIZE * 0.7),  // 隐形战机
+    health: 3,
+    speed: deviceAdapter.adaptSpeed(3), // 中等速度
+    color: ['#888888', '#666666'],
+    shape: 'stealth',
+    score: 3,
+    canShoot: true, // 隐形战机可以发射导弹
+    shootInterval: 100,
+    dropRate: 0.35 // 较高掉落概率
   }
 ];
 
@@ -121,7 +146,7 @@ export default class Enemy extends Animation {
 
     const EnemyBullet = require('./enemybullet').default;
     const bullet = GameGlobal.databus.pool.getItemByClass('enemybullet', EnemyBullet);
-    bullet.init(this.x + this.width / 2, this.y + this.height);
+    bullet.init(this.x + this.width / 2, this.y + this.height, this.type.color[0]);
     GameGlobal.databus.enemyBullets.push(bullet);
     
     this.lastShootTime = GameGlobal.databus.frame;
@@ -143,8 +168,8 @@ export default class Enemy extends Animation {
     // 更新尾焰粒子
     this.updateTrailParticles();
 
-    // 检查小型敌机的冲刺条件
-    if (this.type.shape === 'fighter_small' && !this.isDashing && this.y >= this.dashThreshold) {
+    // 检查侦察机的冲刺条件
+    if (this.type.shape === 'scout' && !this.isDashing && this.y >= this.dashThreshold) {
       this.isDashing = true;
     }
 
@@ -209,8 +234,8 @@ export default class Enemy extends Animation {
     this.playAnimation();
     GameGlobal.musicManager.playExplosion();
 
-    // 如果是大型敌机，有概率掉落宝物
-    if (this.type.size === 40 && Math.random() < this.type.dropRate) {
+    // 根据敌机类型和概率掉落宝物
+    if (Math.random() < this.type.dropRate) {
       this.dropPowerUp();
     }
 
@@ -261,6 +286,15 @@ export default class Enemy extends Animation {
         break;
       case 'heavy_fighter':
         this.renderHeavyFighter(ctx, centerX, centerY);
+        break;
+      case 'scout':
+        this.renderScout(ctx, centerX, centerY);
+        break;
+      case 'interceptor':
+        this.renderInterceptor(ctx, centerX, centerY);
+        break;
+      case 'stealth':
+        this.renderStealth(ctx, centerX, centerY);
         break;
     }
     
@@ -314,18 +348,13 @@ export default class Enemy extends Animation {
     ctx.strokeStyle = this.type.color[0];
     ctx.lineWidth = 2;
     
-    // 机身（对称六边形）- 像素化处理
+    // 机身（流线型三角形，机头朝下）
     ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const angle = (i * Math.PI) / 3;
-      const x = Math.floor(centerX + width * 0.3 * Math.cos(angle));
-      const y = Math.floor(centerY + height * 0.3 * Math.sin(angle));
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    }
+    ctx.moveTo(Math.floor(centerX), Math.floor(this.y + height));
+    ctx.lineTo(Math.floor(centerX - width * 0.25), Math.floor(this.y + height * 0.3));
+    ctx.lineTo(Math.floor(centerX - width * 0.2), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.2), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.25), Math.floor(this.y + height * 0.3));
     ctx.closePath();
     ctx.stroke();
     
@@ -338,6 +367,20 @@ export default class Enemy extends Animation {
     ctx.lineTo(Math.floor(centerX + width * 0.4), Math.floor(centerY + 4));
     ctx.lineTo(Math.floor(centerX + width * 0.35), Math.floor(centerY - 6));
     ctx.closePath();
+    ctx.stroke();
+    
+    // 尾翼（对称三角形）
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX - 2), Math.floor(this.y + 2));
+    ctx.lineTo(Math.floor(centerX - width * 0.15), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + 2), Math.floor(this.y + 2));
+    ctx.lineTo(Math.floor(centerX + width * 0.15), Math.floor(this.y));
+    ctx.closePath();
+    ctx.stroke();
+    
+    // 驾驶舱（小圆形）
+    ctx.beginPath();
+    ctx.arc(Math.floor(centerX), Math.floor(centerY + 1), 3, 0, Math.PI * 2);
     ctx.stroke();
     
     // 添加像素风格的装饰点 - 移到机翼边缘
@@ -357,10 +400,14 @@ export default class Enemy extends Animation {
     ctx.strokeStyle = this.type.color[0];
     ctx.lineWidth = 2;
     
-    // 机身（对称矩形）- 像素化处理
+    // 机身（流线型矩形，机头朝下）
     ctx.beginPath();
-    ctx.rect(Math.floor(centerX - width * 0.3), Math.floor(centerY - height * 0.3), 
-             Math.floor(width * 0.6), Math.floor(height * 0.6));
+    ctx.moveTo(Math.floor(centerX), Math.floor(this.y + height));
+    ctx.lineTo(Math.floor(centerX - width * 0.3), Math.floor(this.y + height * 0.4));
+    ctx.lineTo(Math.floor(centerX - width * 0.25), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.25), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.3), Math.floor(this.y + height * 0.4));
+    ctx.closePath();
     ctx.stroke();
     
     // 机翼（对称大三角形）- 像素化处理
@@ -374,13 +421,18 @@ export default class Enemy extends Animation {
     ctx.closePath();
     ctx.stroke();
     
-    // 尾翼（对称）- 像素化处理
+    // 尾翼（对称三角形）
     ctx.beginPath();
     ctx.moveTo(Math.floor(centerX - 3), Math.floor(this.y + 2));
     ctx.lineTo(Math.floor(centerX - width * 0.2), Math.floor(this.y));
     ctx.lineTo(Math.floor(centerX + 3), Math.floor(this.y + 2));
     ctx.lineTo(Math.floor(centerX + width * 0.2), Math.floor(this.y));
     ctx.closePath();
+    ctx.stroke();
+    
+    // 驾驶舱（矩形）
+    ctx.beginPath();
+    ctx.rect(Math.floor(centerX - 3), Math.floor(centerY - 1), 6, 2);
     ctx.stroke();
     
     // 添加像素风格的装饰点 - 移到机翼边缘
@@ -400,7 +452,7 @@ export default class Enemy extends Animation {
     ctx.strokeStyle = this.type.color[0];
     ctx.lineWidth = 2;
     
-    // 机身（对称椭圆形）- 像素化处理
+    // 机身（流线型椭圆形，机头朝下）
     ctx.beginPath();
     ctx.ellipse(Math.floor(centerX), Math.floor(centerY), 
                 Math.floor(width * 0.4), Math.floor(height * 0.3), 0, 0, Math.PI * 2);
@@ -412,10 +464,18 @@ export default class Enemy extends Animation {
              Math.floor(width * 1.2), 4);
     ctx.stroke();
     
-    // 尾翼（对称）- 像素化处理
+    // 尾翼（对称三角形）
     ctx.beginPath();
-    ctx.rect(Math.floor(centerX - width * 0.15), Math.floor(this.y + 2), 
-             Math.floor(width * 0.3), 4);
+    ctx.moveTo(Math.floor(centerX - width * 0.15), Math.floor(this.y + 2));
+    ctx.lineTo(Math.floor(centerX - width * 0.1), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.1), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.15), Math.floor(this.y + 2));
+    ctx.closePath();
+    ctx.stroke();
+    
+    // 驾驶舱（小圆形）
+    ctx.beginPath();
+    ctx.arc(Math.floor(centerX), Math.floor(centerY - 2), 3, 0, Math.PI * 2);
     ctx.stroke();
     
     // 添加像素风格的装饰点 - 移到机翼边缘
@@ -460,6 +520,15 @@ export default class Enemy extends Animation {
     ctx.closePath();
     ctx.stroke();
     
+    // 尾翼（对称三角形）
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX - 4), Math.floor(this.y + 3));
+    ctx.lineTo(Math.floor(centerX - width * 0.25), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + 4), Math.floor(this.y + 3));
+    ctx.lineTo(Math.floor(centerX + width * 0.25), Math.floor(this.y));
+    ctx.closePath();
+    ctx.stroke();
+    
     // 驾驶舱（中心圆形）- 像素化处理
     ctx.beginPath();
     ctx.arc(Math.floor(centerX), Math.floor(centerY + 1), 4, 0, Math.PI * 2);
@@ -471,10 +540,142 @@ export default class Enemy extends Animation {
     ctx.fillRect(Math.floor(centerX + width * 0.53), Math.floor(centerY - 3), 2, 2);
   }
 
+  // 渲染侦察机
+  renderScout(ctx, centerX, centerY) {
+    const width = this.width;
+    const height = this.height;
+    
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
+    ctx.strokeStyle = this.type.color[0];
+    ctx.lineWidth = 2;
+    
+    // 机身（细长三角形，机头朝下）
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX), Math.floor(this.y + height));
+    ctx.lineTo(Math.floor(centerX - width * 0.2), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.2), Math.floor(this.y));
+    ctx.closePath();
+    ctx.stroke();
+    
+    // 小机翼（对称三角形）
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX - 1), Math.floor(centerY + 1));
+    ctx.lineTo(Math.floor(centerX - width * 0.25), Math.floor(centerY + 2));
+    ctx.lineTo(Math.floor(centerX - width * 0.2), Math.floor(centerY - 3));
+    ctx.lineTo(Math.floor(centerX + 1), Math.floor(centerY + 1));
+    ctx.lineTo(Math.floor(centerX + width * 0.25), Math.floor(centerY + 2));
+    ctx.lineTo(Math.floor(centerX + width * 0.2), Math.floor(centerY - 3));
+    ctx.closePath();
+    ctx.stroke();
+    
+    // 尾翼（小三角形）
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX - 2), Math.floor(this.y + 1));
+    ctx.lineTo(Math.floor(centerX - width * 0.15), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + 2), Math.floor(this.y + 1));
+    ctx.lineTo(Math.floor(centerX + width * 0.15), Math.floor(this.y));
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  // 渲染拦截机
+  renderInterceptor(ctx, centerX, centerY) {
+    const width = this.width;
+    const height = this.height;
+    
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
+    ctx.strokeStyle = this.type.color[0];
+    ctx.lineWidth = 2;
+    
+    // 机身（流线型三角形）
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX), Math.floor(this.y + height));
+    ctx.lineTo(Math.floor(centerX - width * 0.25), Math.floor(this.y + height * 0.3));
+    ctx.lineTo(Math.floor(centerX - width * 0.2), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.2), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.25), Math.floor(this.y + height * 0.3));
+    ctx.closePath();
+    ctx.stroke();
+    
+    // 后掠机翼（三角形）
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX - 2), Math.floor(centerY + 2));
+    ctx.lineTo(Math.floor(centerX - width * 0.35), Math.floor(centerY + 4));
+    ctx.lineTo(Math.floor(centerX - width * 0.25), Math.floor(centerY - 4));
+    ctx.lineTo(Math.floor(centerX + 2), Math.floor(centerY + 2));
+    ctx.lineTo(Math.floor(centerX + width * 0.35), Math.floor(centerY + 4));
+    ctx.lineTo(Math.floor(centerX + width * 0.25), Math.floor(centerY - 4));
+    ctx.closePath();
+    ctx.stroke();
+    
+    // 垂直尾翼
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX), Math.floor(this.y + 2));
+    ctx.lineTo(Math.floor(centerX), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX - 3), Math.floor(this.y + 1));
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  // 渲染隐形战机
+  renderStealth(ctx, centerX, centerY) {
+    const width = this.width;
+    const height = this.height;
+    
+    // 像素化效果
+    ctx.imageSmoothingEnabled = false;
+    
+    ctx.strokeStyle = this.type.color[0];
+    ctx.lineWidth = 2;
+    
+    // 机身（菱形，机头朝下）
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX), Math.floor(this.y + height));
+    ctx.lineTo(Math.floor(centerX - width * 0.3), Math.floor(centerY));
+    ctx.lineTo(Math.floor(centerX), Math.floor(this.y));
+    ctx.lineTo(Math.floor(centerX + width * 0.3), Math.floor(centerY));
+    ctx.closePath();
+    ctx.stroke();
+    
+    // 三角翼（大三角形）
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(centerX - 3), Math.floor(centerY + 2));
+    ctx.lineTo(Math.floor(centerX - width * 0.45), Math.floor(centerY + 3));
+    ctx.lineTo(Math.floor(centerX - width * 0.35), Math.floor(centerY - 5));
+    ctx.lineTo(Math.floor(centerX + 3), Math.floor(centerY + 2));
+    ctx.lineTo(Math.floor(centerX + width * 0.45), Math.floor(centerY + 3));
+    ctx.lineTo(Math.floor(centerX + width * 0.35), Math.floor(centerY - 5));
+    ctx.closePath();
+    ctx.stroke();
+    
+    // 驾驶舱（细长矩形）
+    ctx.beginPath();
+    ctx.rect(Math.floor(centerX - 2), Math.floor(centerY - 1), 4, 2);
+    ctx.stroke();
+  }
+
   // 添加尾焰粒子
   addTrailParticle() {
+    // 检测是否为移动设备
+    let isMobile = false;
+    if (typeof wx !== 'undefined' && wx.getSystemInfoSync) {
+      try {
+        const systemInfo = wx.getSystemInfoSync();
+        isMobile = systemInfo.platform === 'ios' || systemInfo.platform === 'android';
+      } catch (e) {
+        isMobile = true;
+      }
+    }
+    
+    // 移动设备禁用粒子或减少数量
+    const maxParticles = isMobile ? 0 : 5;
+    
     // 限制粒子数量，避免性能问题
-    if (this.trailParticles.length >= 5) {
+    if (this.trailParticles.length >= maxParticles) {
       return;
     }
     
@@ -585,6 +786,24 @@ export default class Enemy extends Animation {
         wingRight = this.x + this.width + 15;
         wingTop = centerY - 5;
         wingBottom = centerY + 8;
+        break;
+      case 'scout':
+        wingLeft = this.x - 3;
+        wingRight = this.x + this.width + 3;
+        wingTop = centerY - 2;
+        wingBottom = centerY + 5;
+        break;
+      case 'interceptor':
+        wingLeft = this.x - 6;
+        wingRight = this.x + this.width + 6;
+        wingTop = centerY - 3;
+        wingBottom = centerY + 7;
+        break;
+      case 'stealth':
+        wingLeft = this.x - 10;
+        wingRight = this.x + this.width + 10;
+        wingTop = centerY - 4;
+        wingBottom = centerY + 6;
         break;
       default:
         return false;

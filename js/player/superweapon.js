@@ -45,12 +45,13 @@ export default class SuperWeapon extends Sprite {
     // 消灭所有敌机并创建爆炸效果
     GameGlobal.databus.enemys.forEach(enemy => {
       if (enemy && enemy.isActive) {
-        // 创建敌机爆炸效果
+        // 创建敌机爆炸效果 - 使用全屏爆炸模式，范围增大100%
         GameGlobal.explosionEffects.createExplosion(
           enemy.x + enemy.width / 2,
           enemy.y + enemy.height / 2,
           '#ff6600',
-          50 // 较大的爆炸效果
+          50, // 较大的爆炸效果
+          true // 全屏爆炸模式
         );
         enemy.destroy();
       }
@@ -106,17 +107,6 @@ export default class SuperWeapon extends Sprite {
     // 添加像素风格内部高光
     ctx.fillStyle = `rgba(255, 255, 255, ${0.3 * blinkIntensity})`;
     ctx.fill();
-    
-    // 添加像素风格的装饰点
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(centerX - 2, centerY - 2, 4, 4);
-    
-    // 添加像素风格的角装饰
-    ctx.fillStyle = '#ffaa00';
-    ctx.fillRect(centerX - radius + 2, centerY - 1, 2, 2);
-    ctx.fillRect(centerX + radius - 4, centerY - 1, 2, 2);
-    ctx.fillRect(centerX - 1, centerY - radius + 2, 2, 2);
-    ctx.fillRect(centerX - 1, centerY + radius - 4, 2, 2);
     
     ctx.restore();
   }

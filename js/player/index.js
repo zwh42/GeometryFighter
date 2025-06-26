@@ -183,8 +183,22 @@ export default class Player extends Animation {
 
   // 添加尾焰粒子
   addTrailParticle() {
+    // 检测是否为移动设备
+    let isMobile = false;
+    if (typeof wx !== 'undefined' && wx.getSystemInfoSync) {
+      try {
+        const systemInfo = wx.getSystemInfoSync();
+        isMobile = systemInfo.platform === 'ios' || systemInfo.platform === 'android';
+      } catch (e) {
+        isMobile = true;
+      }
+    }
+    
+    // 移动设备禁用粒子或减少数量
+    const maxParticles = isMobile ? 0 : 8;
+    
     // 限制粒子数量，避免性能问题
-    if (this.trailParticles.length >= 8) {
+    if (this.trailParticles.length >= maxParticles) {
       return;
     }
     

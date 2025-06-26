@@ -4,6 +4,8 @@
 class ExplosionEffects {
   constructor() {
     this.explosions = [];
+    this.maxExplosions = 10; // 限制最大爆炸效果数量
+    this.cleanupCounter = 0; // 清理计数器
   }
 
   /**
@@ -12,16 +14,39 @@ class ExplosionEffects {
    * @param {number} y - 爆炸中心Y坐标
    * @param {string} color - 爆炸颜色
    * @param {number} size - 爆炸大小
+   * @param {boolean} isFullScreen - 是否为全屏爆炸模式
    */
-  createExplosion(x, y, color = '#ff6600', size = 30) {
+  createExplosion(x, y, color = '#ff6600', size = 30, isFullScreen = false) {
+    // 检测是否为移动设备
+    let isMobile = false;
+    if (typeof wx !== 'undefined' && wx.getSystemInfoSync) {
+      try {
+        const systemInfo = wx.getSystemInfoSync();
+        isMobile = systemInfo.platform === 'ios' || systemInfo.platform === 'android';
+      } catch (e) {
+        isMobile = true;
+      }
+    }
+    
+    // 移动设备减少最大爆炸数量
+    const maxExplosions = isMobile ? 5 : this.maxExplosions;
+    
+    // 如果爆炸效果太多，移除最旧的
+    if (this.explosions.length >= maxExplosions) {
+      this.explosions.shift(); // 移除最旧的爆炸效果
+    }
+    
+    // 如果是全屏爆炸模式，爆炸范围增大100%
+    const explosionSize = isFullScreen ? size * 2 : size;
+    
     const explosion = {
       x: Math.floor(x),
       y: Math.floor(y),
       color: color,
-      size: size,
+      size: explosionSize,
       life: 1.0,
       decay: 0.03, // 稍微减慢衰减速度
-      lineSegments: this.createLineSegments(x, y, color, size),
+      lineSegments: this.createLineSegments(x, y, color, explosionSize),
       isActive: true
     };
     
@@ -34,21 +59,34 @@ class ExplosionEffects {
    */
   createLineSegments(x, y, color, size) {
     const segments = [];
-    const segmentCount = Math.floor(size / 2); // 增加线段数量
+    
+    // 检测是否为移动设备
+    let isMobile = false;
+    if (typeof wx !== 'undefined' && wx.getSystemInfoSync) {
+      try {
+        const systemInfo = wx.getSystemInfoSync();
+        isMobile = systemInfo.platform === 'ios' || systemInfo.platform === 'android';
+      } catch (e) {
+        isMobile = true;
+      }
+    }
+    
+    // 移动设备减少线段数量
+    const segmentCount = isMobile ? Math.floor(size / 4) : Math.floor(size / 2);
     
     for (let i = 0; i < segmentCount; i++) {
       // 随机角度和距离
       const angle = Math.random() * Math.PI * 2;
       const distance = Math.random() * size * 0.8 + size * 0.4; // 增加飞散距离
       
-      // 线段长度随机（增加长度）
-      const segmentLength = Math.random() * 12 + 6;
+      // 线段长度随机（移动设备减少长度）
+      const segmentLength = isMobile ? (Math.random() * 8 + 4) : (Math.random() * 12 + 6);
       
       // 线段角度随机
       const segmentAngle = Math.random() * Math.PI * 2;
       
-      // 飞散速度（增加速度）
-      const speed = Math.random() * 6 + 3;
+      // 飞散速度（移动设备减少速度）
+      const speed = isMobile ? (Math.random() * 4 + 2) : (Math.random() * 6 + 3);
       
       segments.push({
         x: x,
@@ -60,7 +98,7 @@ class ExplosionEffects {
         life: 1.0,
         decay: Math.random() * 0.015 + 0.008, // 减慢衰减速度
         color: color,
-        thickness: Math.random() * 3 + 2 // 增加线段粗细
+        thickness: isMobile ? (Math.random() * 2 + 1) : (Math.random() * 3 + 2) // 移动设备减少线段粗细
       });
     }
     
@@ -72,6 +110,14 @@ class ExplosionEffects {
    */
   update() {
     try {
+      this.cleanupCounter++;
+      
+      // 每10帧进行一次强制清理
+      if (this.cleanupCounter >= 10) {
+        this.forceCleanup();
+        this.cleanupCounter = 0;
+      }
+      
       for (let i = this.explosions.length - 1; i >= 0; i--) {
         const explosion = this.explosions[i];
         
@@ -120,6 +166,27 @@ class ExplosionEffects {
       // 清理所有爆炸效果以防止进一步错误
       this.explosions = [];
     }
+  }
+
+  /**
+   * 强制清理所有爆炸效果
+   */
+  forceCleanup() {
+    // 移除所有生命周期小于0.1的爆炸效果
+    this.explosions = this.explosions.filter(explosion => {
+      if (!explosion || !explosion.isActive || explosion.life < 0.1) {
+        return false;
+      }
+      
+      // 清理线段碎片
+      if (explosion.lineSegments && Array.isArray(explosion.lineSegments)) {
+        explosion.lineSegments = explosion.lineSegments.filter(segment => {
+          return segment && segment.life > 0;
+        });
+      }
+      
+      return true;
+    });
   }
 
   /**

@@ -97,118 +97,141 @@ export default class Main {
   }
 
   /**
-   * 优化后的全局碰撞检测
+   * 碰撞检测
    */
   collisionDetection() {
     const bullets = GameGlobal.databus.bullets;
-    const enemys = GameGlobal.databus.enemys;
     const enemyBullets = GameGlobal.databus.enemyBullets;
+    const enemys = GameGlobal.databus.enemys;
     const powerUps = GameGlobal.databus.powerUps;
     const superWeapons = GameGlobal.databus.superWeapons;
-    
-    // 检测子弹与敌机的碰撞 - 使用更高效的算法
-    for (let i = bullets.length - 1; i >= 0; i--) {
-      const bullet = bullets[i];
-      if (!bullet || !bullet.isActive) continue;
-      
-      for (let j = enemys.length - 1; j >= 0; j--) {
-        const enemy = enemys[j];
-        if (!enemy || !enemy.isActive) continue;
 
-        // 如果敌机存活并且发生了发生碰撞
-        if (enemy.isCollideWith(bullet)) {
-          // 创建命中效果
-          GameGlobal.explosionEffects.createHitEffect(
-            bullet.x + bullet.width / 2,
-            bullet.y + bullet.height / 2,
-            '#ffff00'
+    // 检测子弹与敌机的碰撞 - 优化版本
+    if (bullets.length > 0 && enemys.length > 0) {
+      // 使用更高效的碰撞检测
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const bullet = bullets[i];
+        if (!bullet || !bullet.isActive) continue;
+        
+        const bulletCenterX = bullet.x + bullet.width / 2;
+        const bulletCenterY = bullet.y + bullet.height / 2;
+        
+        // 快速边界检查
+        let hitEnemy = null;
+        for (let j = enemys.length - 1; j >= 0; j--) {
+          const enemy = enemys[j];
+          if (!enemy || !enemy.isActive) continue;
+          
+          // 快速距离检查
+          const enemyCenterX = enemy.x + enemy.width / 2;
+          const enemyCenterY = enemy.y + enemy.height / 2;
+          const distance = Math.sqrt(
+            Math.pow(bulletCenterX - enemyCenterX, 2) + 
+            Math.pow(bulletCenterY - enemyCenterY, 2)
           );
           
-          enemy.takeDamage(); // 使用新的伤害系统
+          // 如果距离太远，跳过详细碰撞检测
+          if (distance > 50) continue;
+          
+          if (enemy.isCollideWith(bullet)) {
+            hitEnemy = enemy;
+            break;
+          }
+        }
+        
+        if (hitEnemy) {
+          hitEnemy.takeDamage(); // 使用新的伤害系统
           bullet.destroy(); // 销毁子弹
           // 如果敌机被击毁，增加积分和回血
-          if (!enemy.isActive) {
-            // 创建敌机爆炸效果
+          if (!hitEnemy.isActive) {
+            // 创建敌机爆炸效果 - 使用敌机本身的颜色
             GameGlobal.explosionEffects.createExplosion(
-              enemy.x + enemy.width / 2,
-              enemy.y + enemy.height / 2,
-              '#ff6600',
+              hitEnemy.x + hitEnemy.width / 2,
+              hitEnemy.y + hitEnemy.height / 2,
+              hitEnemy.type.color[0], // 使用敌机本身的颜色
               40
             );
             GameGlobal.databus.score += 10; // 每击落一架敌机+10分
             this.player.heal(1); // 击落敌机回血1%
+          }
+        }
+      }
+    }
+
+    // 检测敌机子弹与玩家的碰撞
+    if (enemyBullets.length > 0) {
+      for (let i = enemyBullets.length - 1; i >= 0; i--) {
+        const enemyBullet = enemyBullets[i];
+        if (!enemyBullet || !enemyBullet.isActive) continue;
+        
+        if (this.player.isCollideWith(enemyBullet)) {
+          // 创建命中效果
+          GameGlobal.explosionEffects.createHitEffect(
+            enemyBullet.x + enemyBullet.width / 2,
+            enemyBullet.y + enemyBullet.height / 2,
+            '#ff0000'
+          );
+          
+          this.player.takeDamage(20); // 被敌机子弹击中掉血20%
+          enemyBullet.destroy(); // 销毁敌机子弹
+          // 只有在血量为0时才游戏结束
+          if (this.player.health <= 0) {
+            GameGlobal.databus.gameOver(); // 游戏结束
+          }
+        }
+      }
+    }
+
+    // 检测玩家与敌机的碰撞
+    if (enemys.length > 0) {
+      for (let i = enemys.length - 1; i >= 0; i--) {
+        const enemy = enemys[i];
+        if (!enemy || !enemy.isActive) continue;
+
+        // 如果玩家与敌机发生碰撞
+        if (this.player.isCollideWith(enemy)) {
+          // 创建碰撞爆炸效果 - 使用敌机本身的颜色
+          GameGlobal.explosionEffects.createExplosion(
+            enemy.x + enemy.width / 2,
+            enemy.y + enemy.height / 2,
+            enemy.type.color[0], // 使用敌机本身的颜色
+            50
+          );
+          
+          this.player.takeDamage(60); // 被敌机撞击掉血60%
+          enemy.destroy(); // 销毁敌机
+          // 只有在血量为0时才游戏结束
+          if (this.player.health <= 0) {
+            GameGlobal.databus.gameOver(); // 游戏结束
           }
           break; // 退出循环
         }
       }
     }
 
-    // 检测敌机子弹与玩家的碰撞
-    for (let i = enemyBullets.length - 1; i >= 0; i--) {
-      const enemyBullet = enemyBullets[i];
-      if (!enemyBullet || !enemyBullet.isActive) continue;
-      
-      if (this.player.isCollideWith(enemyBullet)) {
-        // 创建命中效果
-        GameGlobal.explosionEffects.createHitEffect(
-          enemyBullet.x + enemyBullet.width / 2,
-          enemyBullet.y + enemyBullet.height / 2,
-          '#ff0000'
-        );
-        
-        this.player.takeDamage(20); // 被敌机子弹击中掉血20%
-        enemyBullet.destroy(); // 销毁敌机子弹
-        // 只有在血量为0时才游戏结束
-        if (this.player.health <= 0) {
-          GameGlobal.databus.gameOver(); // 游戏结束
-        }
-      }
-    }
-
-    // 检测玩家与敌机的碰撞
-    for (let i = enemys.length - 1; i >= 0; i--) {
-      const enemy = enemys[i];
-      if (!enemy || !enemy.isActive) continue;
-
-      // 如果玩家与敌机发生碰撞
-      if (this.player.isCollideWith(enemy)) {
-        // 创建碰撞爆炸效果
-        GameGlobal.explosionEffects.createExplosion(
-          enemy.x + enemy.width / 2,
-          enemy.y + enemy.height / 2,
-          '#ff0000',
-          50
-        );
-        
-        this.player.takeDamage(60); // 被敌机撞击掉血60%
-        enemy.destroy(); // 销毁敌机
-        // 只有在血量为0时才游戏结束
-        if (this.player.health <= 0) {
-          GameGlobal.databus.gameOver(); // 游戏结束
-        }
-        break; // 退出循环
-      }
-    }
-
     // 检测玩家与宝物的碰撞
-    for (let i = powerUps.length - 1; i >= 0; i--) {
-      const powerUp = powerUps[i];
-      if (!powerUp || !powerUp.isActive) continue;
-      
-      if (this.player.isCollideWith(powerUp)) {
-        this.player.enableSpreadMode();
-        powerUp.destroy();
+    if (powerUps.length > 0) {
+      for (let i = powerUps.length - 1; i >= 0; i--) {
+        const powerUp = powerUps[i];
+        if (!powerUp || !powerUp.isActive) continue;
+        
+        if (this.player.isCollideWith(powerUp)) {
+          this.player.enableSpreadMode();
+          powerUp.destroy();
+        }
       }
     }
 
     // 检测玩家与超级武器的碰撞
-    for (let i = superWeapons.length - 1; i >= 0; i--) {
-      const superWeapon = superWeapons[i];
-      if (!superWeapon || !superWeapon.isActive) continue;
-      
-      if (this.player.isCollideWith(superWeapon)) {
-        superWeapon.activate(); // 激活超级武器效果
-        superWeapon.destroy();
+    if (superWeapons.length > 0) {
+      for (let i = superWeapons.length - 1; i >= 0; i--) {
+        const superWeapon = superWeapons[i];
+        if (!superWeapon || !superWeapon.isActive) continue;
+        
+        if (this.player.isCollideWith(superWeapon)) {
+          superWeapon.activate(); // 激活超级武器效果
+          superWeapon.destroy();
+        }
       }
     }
   }
@@ -274,8 +297,45 @@ export default class Main {
       GameGlobal.databus.animations = GameGlobal.databus.animations.filter(ani => {
         return validateGameObject(ani, 'animation') && ani.isPlaying;
       });
+      
+      // 每60帧进行一次强制清理
+      if (GameGlobal.databus.frame % 60 === 0) {
+        this.forceCleanup();
+      }
     } catch (error) {
       this.performanceMonitor.logError(error, 'cleanupObjects');
+    }
+  }
+
+  /**
+   * 强制清理所有对象
+   */
+  forceCleanup() {
+    try {
+      // 强制清理对象池
+      GameGlobal.databus.pool.forceCleanup();
+      
+      // 强制清理爆炸效果
+      GameGlobal.explosionEffects.forceCleanup();
+      
+      // 清理过多的动画
+      if (GameGlobal.databus.animations.length > 20) {
+        GameGlobal.databus.animations = GameGlobal.databus.animations.slice(-10);
+      }
+      
+      // 输出内存使用情况
+      const stats = GameGlobal.databus.getPerformanceStats();
+      console.log('Memory cleanup - Objects:', {
+        bullets: stats.bullets,
+        enemyBullets: stats.enemyBullets,
+        enemys: stats.enemys,
+        powerUps: stats.powerUps,
+        superWeapons: stats.superWeapons,
+        animations: stats.animations,
+        poolTotal: stats.poolStats.total
+      });
+    } catch (error) {
+      this.performanceMonitor.logError(error, 'forceCleanup');
     }
   }
 
@@ -458,6 +518,12 @@ export default class Main {
       if (this.fps < performanceConfig.CRITICAL_FPS_THRESHOLD) {
         this.aggressiveOptimization();
       }
+    }
+    
+    // 检查内存使用情况
+    if (totalObjects > 100 || stats.poolStats.total > 200) {
+      console.warn('High memory usage detected, performing aggressive cleanup');
+      this.forceCleanup();
     }
   }
 

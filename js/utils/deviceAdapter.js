@@ -74,9 +74,9 @@ class DeviceAdapter {
     this.baseEnemyWidth = Math.round(60 * this.scaleRatio * SIZE_MULTIPLIER);
     this.baseEnemyHeight = Math.round(50 * this.scaleRatio * SIZE_MULTIPLIER);
     
-    // 敌机子弹基准尺寸（增大30%）
-    this.baseEnemyBulletWidth = Math.round(6 * this.scaleRatio * SIZE_MULTIPLIER * BULLET_SIZE_MULTIPLIER);
-    this.baseEnemyBulletHeight = Math.round(12 * this.scaleRatio * SIZE_MULTIPLIER * BULLET_SIZE_MULTIPLIER);
+    // 敌机子弹基准尺寸（比玩家子弹小25%）
+    this.baseEnemyBulletWidth = Math.round(8 * this.scaleRatio * SIZE_MULTIPLIER * BULLET_SIZE_MULTIPLIER * 0.75);
+    this.baseEnemyBulletHeight = Math.round(15 * this.scaleRatio * SIZE_MULTIPLIER * BULLET_SIZE_MULTIPLIER * 0.75);
     
     // 道具基准尺寸
     this.basePowerUpWidth = Math.round(20 * this.scaleRatio * SIZE_MULTIPLIER);
@@ -232,7 +232,7 @@ class DeviceAdapter {
     console.log('玩家战机尺寸 (增大20%):', this.getPlayerSize());
     console.log('子弹尺寸 (增大20% + 30%):', this.getBulletSize());
     console.log('敌机尺寸 (增大20%):', this.getEnemySize());
-    console.log('敌机子弹尺寸 (增大20% + 30%):', this.getEnemyBulletSize());
+    console.log('敌机子弹尺寸 (与玩家子弹一样大):', this.getEnemyBulletSize());
     console.log('道具尺寸 (增大20%):', this.getPowerUpSize());
     console.log('超级武器尺寸 (增大20%):', this.getSuperWeaponSize());
     console.log('触摸偏差值:', this.getTouchDeviation());

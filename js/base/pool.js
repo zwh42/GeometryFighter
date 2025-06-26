@@ -11,7 +11,8 @@ const __ = {
 export default class Pool {
   constructor() {
     this[__.poolDic] = {};
-    this.maxPoolSize = 50; // 每个池的最大大小
+    this.maxPoolSize = 30; // 减少每个池的最大大小
+    this.cleanupCounter = 0; // 清理计数器
   }
 
   /**
@@ -56,6 +57,9 @@ export default class Pool {
       }
       
       pool.push(instance);
+    } else {
+      // 如果池已满，直接丢弃对象
+      console.log(`Pool ${name} is full, discarding object`);
     }
   }
 
@@ -66,6 +70,21 @@ export default class Pool {
     for (const key in this[__.poolDic]) {
       this[__.poolDic][key].length = 0;
     }
+    this.cleanupCounter = 0;
+  }
+
+  /**
+   * 强制清理对象池
+   * 保留一半的对象，丢弃另一半
+   */
+  forceCleanup() {
+    for (const key in this[__.poolDic]) {
+      const pool = this[__.poolDic][key];
+      if (pool.length > this.maxPoolSize / 2) {
+        // 保留一半的对象
+        pool.splice(0, Math.floor(pool.length / 2));
+      }
+    }
   }
 
   /**
@@ -73,9 +92,13 @@ export default class Pool {
    */
   getStats() {
     const stats = {};
+    let totalObjects = 0;
     for (const key in this[__.poolDic]) {
-      stats[key] = this[__.poolDic][key].length;
+      const count = this[__.poolDic][key].length;
+      stats[key] = count;
+      totalObjects += count;
     }
+    stats.total = totalObjects;
     return stats;
   }
 }
