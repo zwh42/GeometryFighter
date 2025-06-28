@@ -58,8 +58,7 @@ export default class Pool {
       
       pool.push(instance);
     } else {
-      // 如果池已满，直接丢弃对象
-      console.log(`Pool ${name} is full, discarding object`);
+      // 如果池已满，静默丢弃对象
     }
   }
 
@@ -75,16 +74,9 @@ export default class Pool {
 
   /**
    * 强制清理对象池
-   * 保留一半的对象，丢弃另一半
    */
   forceCleanup() {
-    for (const key in this[__.poolDic]) {
-      const pool = this[__.poolDic][key];
-      if (pool.length > this.maxPoolSize / 2) {
-        // 保留一半的对象
-        pool.splice(0, Math.floor(pool.length / 2));
-      }
-    }
+    this.poolMap.clear();
   }
 
   /**

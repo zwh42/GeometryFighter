@@ -32,12 +32,22 @@ export const PERFORMANCE_CONFIG = {
   ENABLE_SHADOWS: true,
   ENABLE_GRADIENTS: true,
   
+  // 智能渲染频率控制
+  RENDER_FREQUENCY: {
+    NORMAL: 1, // 每帧渲染
+    REDUCED: 2, // 每2帧渲染一次
+    MINIMAL: 3  // 每3帧渲染一次
+  },
+  
   // 移动设备优化
   MOBILE_OPTIMIZATION: {
     REDUCE_PARTICLES: true,
     DISABLE_SHADOWS: true,
     SIMPLIFY_GRADIENTS: true,
-    LOWER_MAX_OBJECTS: true
+    LOWER_MAX_OBJECTS: true,
+    SMART_RENDER_FREQUENCY: true, // 启用智能渲染频率
+    SPATIAL_PARTITIONING: true,   // 启用空间分区
+    AGGRESSIVE_CLEANUP: true      // 启用激进清理
   }
 };
 
@@ -68,24 +78,31 @@ export function detectDevicePerformance() {
   }
   
   if (isMobile) {
-    // 移动设备优化
-    config.MAX_PLAYER_PARTICLES = 2;
-    config.MAX_ENEMY_PARTICLES = 1;
-    config.MAX_BULLET_PARTICLES = 1;
-    config.MAX_ENEMY_BULLET_PARTICLES = 1;
-    config.MAX_ENEMIES = 8;
-    config.MAX_BULLETS = 15;
-    config.MAX_ENEMY_BULLETS = 10;
+    // 移动设备优化 - 平衡性能和流畅度
+    config.MAX_PLAYER_PARTICLES = 0; // 完全禁用玩家粒子
+    config.MAX_ENEMY_PARTICLES = 0;  // 完全禁用敌机粒子
+    config.MAX_BULLET_PARTICLES = 0; // 完全禁用子弹粒子
+    config.MAX_ENEMY_BULLET_PARTICLES = 0; // 完全禁用敌机子弹粒子
+    config.MAX_ENEMIES = 8;          // 适中的敌机数量
+    config.MAX_BULLETS = 20;         // 适中的子弹数量
+    config.MAX_ENEMY_BULLETS = 12;   // 适中的敌机子弹数量
+    config.MAX_POOL_SIZE = 30;       // 适中的对象池大小
     config.ENABLE_SHADOWS = false;
     config.ENABLE_GRADIENTS = false;
     config.ENABLE_PARTICLES = false; // 移动设备禁用粒子
+    
+    // 移动设备渲染频率控制 - 更保守的设置
+    config.CURRENT_RENDER_FREQUENCY = config.RENDER_FREQUENCY.NORMAL;
+    config.LOW_FPS_THRESHOLD = 40;   // 提高低FPS阈值
+    config.CRITICAL_FPS_THRESHOLD = 25; // 保持临界FPS阈值
+    config.MAX_OBJECTS_THRESHOLD = 80;  // 提高对象阈值
   }
   
   // 检测内存限制 - 微信小程序环境可能没有deviceMemory
   if (typeof navigator !== 'undefined' && navigator.deviceMemory && navigator.deviceMemory < 4) {
     // 低内存设备优化
-    config.MAX_POOL_SIZE = 30;
-    config.MAX_OBJECTS_THRESHOLD = 60;
+    config.MAX_POOL_SIZE = 20;
+    config.MAX_OBJECTS_THRESHOLD = 40;
   }
   
   return config;

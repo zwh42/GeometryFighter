@@ -90,4 +90,17 @@ export default class PowerUp extends Sprite {
     
     ctx.restore();
   }
+
+  // 新增：道具生效方法
+  applyEffect(player) {
+    if (!this.isActive) return;
+    // 默认效果：玩家回血20%，加分50
+    if (player && typeof player.heal === 'function') {
+      player.heal(20);
+    }
+    if (GameGlobal && GameGlobal.databus) {
+      GameGlobal.databus.score += 50;
+    }
+    this.destroy();
+  }
 } 

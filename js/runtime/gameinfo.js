@@ -35,11 +35,11 @@ export default class GameInfo extends Emitter {
     
     ctx.fillStyle = '#ffffff';
     ctx.font = '16px monospace';
-    ctx.fillText(`Score: ${GameGlobal.databus.score}`, 20, SCREEN_HEIGHT - 20);
+    ctx.fillText(`当前得分：${GameGlobal.databus.score}`, 20, SCREEN_HEIGHT - 20);
     
     // 显示最高分
     ctx.font = '14px monospace';
-    ctx.fillText(`Highest: ${GameGlobal.databus.highestScore || 0}`, 20, SCREEN_HEIGHT - 40);
+    ctx.fillText(`历史最高分：${GameGlobal.databus.highestScore || 0}`, 20, SCREEN_HEIGHT - 40);
   }
 
   renderGameOver(ctx) {

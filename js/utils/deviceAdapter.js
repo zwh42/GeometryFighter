@@ -26,15 +26,6 @@ class DeviceAdapter {
     
     // 计算基准尺寸
     this.calculateBaseSizes();
-    
-    console.log('DeviceAdapter initialized:', {
-      screenWidth: this.screenWidth,
-      screenHeight: this.screenHeight,
-      pixelRatio: this.pixelRatio,
-      scaleRatio: this.scaleRatio,
-      basePlayerWidth: this.basePlayerWidth,
-      basePlayerHeight: this.basePlayerHeight
-    });
   }
 
   /**
@@ -224,23 +215,9 @@ class DeviceAdapter {
 
   /**
    * 测试设备适配系统
-   * 用于验证适配系统是否正常工作
    */
   testAdaptation() {
-    console.log('=== 设备适配系统测试 ===');
-    console.log('设备信息:', this.getDeviceInfo());
-    console.log('玩家战机尺寸 (增大20%):', this.getPlayerSize());
-    console.log('子弹尺寸 (增大20% + 30%):', this.getBulletSize());
-    console.log('敌机尺寸 (增大20%):', this.getEnemySize());
-    console.log('敌机子弹尺寸 (与玩家子弹一样大):', this.getEnemyBulletSize());
-    console.log('道具尺寸 (增大20%):', this.getPowerUpSize());
-    console.log('超级武器尺寸 (增大20%):', this.getSuperWeaponSize());
-    console.log('触摸偏差值:', this.getTouchDeviation());
-    console.log('射击间隔:', this.getShootInterval());
-    console.log('子弹速度 (增加10%):', this.adaptSpeed(10));
-    console.log('敌机子弹速度 (增加10%):', this.adaptSpeed(3));
-    console.log('注意: 所有震动效果已移除');
-    console.log('=== 测试完成 ===');
+    // 测试完成，无需输出日志
   }
 }
 

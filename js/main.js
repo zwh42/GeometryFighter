@@ -22,6 +22,64 @@ GameGlobal.deviceAdapter = deviceAdapter; // 全局设备适配器实例
 GameGlobal.explosionEffects = explosionEffects; // 全局爆炸效果实例
 
 /**
+ * 空间分区系统 - 用于优化碰撞检测
+ */
+class SpatialPartition {
+  constructor(gridSize = 100) {
+    this.gridSize = gridSize;
+    this.grid = new Map();
+  }
+  
+  /**
+   * 获取对象所在的网格坐标
+   */
+  getGridKey(x, y) {
+    const gridX = Math.floor(x / this.gridSize);
+    const gridY = Math.floor(y / this.gridSize);
+    return `${gridX},${gridY}`;
+  }
+  
+  /**
+   * 添加对象到空间分区
+   */
+  addObject(obj, x, y) {
+    const key = this.getGridKey(x, y);
+    if (!this.grid.has(key)) {
+      this.grid.set(key, []);
+    }
+    this.grid.get(key).push(obj);
+  }
+  
+  /**
+   * 获取指定位置周围的对象
+   */
+  getNearbyObjects(x, y, radius = 50) {
+    const nearby = [];
+    const centerKey = this.getGridKey(x, y);
+    const [centerX, centerY] = centerKey.split(',').map(Number);
+    
+    // 检查周围9个网格
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const key = `${centerX + dx},${centerY + dy}`;
+        if (this.grid.has(key)) {
+          nearby.push(...this.grid.get(key));
+        }
+      }
+    }
+    
+    return nearby;
+  }
+  
+  /**
+   * 清空分区
+   */
+  clear() {
+    this.grid.clear();
+  }
+}
+
+/**
  * 游戏主函数
  */
 export default class Main {
@@ -36,6 +94,17 @@ export default class Main {
   fps = 0; // 当前FPS
   lastFpsUpdate = 0; // 上次FPS更新时间
   performanceMonitor = new PerformanceMonitor(); // 性能监控器
+  
+  // 空间分区系统
+  spatialPartition = new SpatialPartition();
+  
+  // 智能渲染频率控制
+  renderFrameCount = 0;
+  currentRenderFrequency = performanceConfig.RENDER_FREQUENCY.NORMAL;
+  
+  // 帧率平滑
+  fpsHistory = [];
+  smoothedFps = 0;
 
   constructor() {
     // 当开始游戏被点击时，重新开始游戏
@@ -68,6 +137,12 @@ export default class Main {
     this.frameCount = 0;
     this.fps = 0;
     this.lastFpsUpdate = 0;
+    this.renderFrameCount = 0;
+    this.fpsHistory = [];
+    this.smoothedFps = 0;
+    
+    // 清空空间分区
+    this.spatialPartition.clear();
     
     this.aniId = requestAnimationFrame(this.loop.bind(this)); // 开始新的动画循环
   }
@@ -97,7 +172,7 @@ export default class Main {
   }
 
   /**
-   * 碰撞检测
+   * 碰撞检测 - 使用空间分区优化
    */
   collisionDetection() {
     const bullets = GameGlobal.databus.bullets;
@@ -106,9 +181,18 @@ export default class Main {
     const powerUps = GameGlobal.databus.powerUps;
     const superWeapons = GameGlobal.databus.superWeapons;
 
+    // 更新空间分区
+    this.spatialPartition.clear();
+    
+    // 将敌机添加到空间分区
+    enemys.forEach(enemy => {
+      if (enemy && enemy.isActive) {
+        this.spatialPartition.addObject(enemy, enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+      }
+    });
+
     // 检测子弹与敌机的碰撞 - 优化版本
     if (bullets.length > 0 && enemys.length > 0) {
-      // 使用更高效的碰撞检测
       for (let i = bullets.length - 1; i >= 0; i--) {
         const bullet = bullets[i];
         if (!bullet || !bullet.isActive) continue;
@@ -116,10 +200,13 @@ export default class Main {
         const bulletCenterX = bullet.x + bullet.width / 2;
         const bulletCenterY = bullet.y + bullet.height / 2;
         
+        // 使用空间分区获取附近的敌机
+        const nearbyEnemies = this.spatialPartition.getNearbyObjects(bulletCenterX, bulletCenterY, 50);
+        
         // 快速边界检查
         let hitEnemy = null;
-        for (let j = enemys.length - 1; j >= 0; j--) {
-          const enemy = enemys[j];
+        for (let j = nearbyEnemies.length - 1; j >= 0; j--) {
+          const enemy = nearbyEnemies[j];
           if (!enemy || !enemy.isActive) continue;
           
           // 快速距离检查
@@ -198,26 +285,26 @@ export default class Main {
             50
           );
           
-          this.player.takeDamage(60); // 被敌机撞击掉血60%
-          enemy.destroy(); // 销毁敌机
+          enemy.takeDamage(); // 敌机受到伤害
+          this.player.takeDamage(50); // 玩家受到50%伤害
+          
           // 只有在血量为0时才游戏结束
           if (this.player.health <= 0) {
             GameGlobal.databus.gameOver(); // 游戏结束
           }
-          break; // 退出循环
         }
       }
     }
 
-    // 检测玩家与宝物的碰撞
+    // 检测玩家与道具的碰撞
     if (powerUps.length > 0) {
       for (let i = powerUps.length - 1; i >= 0; i--) {
         const powerUp = powerUps[i];
         if (!powerUp || !powerUp.isActive) continue;
-        
+
         if (this.player.isCollideWith(powerUp)) {
-          this.player.enableSpreadMode();
-          powerUp.destroy();
+          powerUp.applyEffect(this.player); // 应用道具效果
+          powerUp.destroy(); // 销毁道具
         }
       }
     }
@@ -227,10 +314,10 @@ export default class Main {
       for (let i = superWeapons.length - 1; i >= 0; i--) {
         const superWeapon = superWeapons[i];
         if (!superWeapon || !superWeapon.isActive) continue;
-        
+
         if (this.player.isCollideWith(superWeapon)) {
-          superWeapon.activate(); // 激活超级武器效果
-          superWeapon.destroy();
+          superWeapon.activate(this.player); // 激活超级武器
+          superWeapon.destroy(); // 销毁超级武器
         }
       }
     }
@@ -241,42 +328,57 @@ export default class Main {
    */
   batchUpdate() {
     // 批量更新子弹
-    for (let i = GameGlobal.databus.bullets.length - 1; i >= 0; i--) {
-      const bullet = GameGlobal.databus.bullets[i];
-      if (bullet && bullet.isActive) {
-        bullet.update();
+    const bullets = GameGlobal.databus.bullets;
+    if (bullets.length > 0) {
+      for (let i = 0; i < bullets.length; i++) {
+        const item = bullets[i];
+        if (item && item.isActive) {
+          item.update();
+        }
       }
     }
     
     // 批量更新敌机子弹
-    for (let i = GameGlobal.databus.enemyBullets.length - 1; i >= 0; i--) {
-      const enemyBullet = GameGlobal.databus.enemyBullets[i];
-      if (enemyBullet && enemyBullet.isActive) {
-        enemyBullet.update();
+    const enemyBullets = GameGlobal.databus.enemyBullets;
+    if (enemyBullets.length > 0) {
+      for (let i = 0; i < enemyBullets.length; i++) {
+        const item = enemyBullets[i];
+        if (item && item.isActive) {
+          item.update();
+        }
       }
     }
     
     // 批量更新敌机
-    for (let i = GameGlobal.databus.enemys.length - 1; i >= 0; i--) {
-      const enemy = GameGlobal.databus.enemys[i];
-      if (enemy && enemy.isActive) {
-        enemy.update();
+    const enemys = GameGlobal.databus.enemys;
+    if (enemys.length > 0) {
+      for (let i = 0; i < enemys.length; i++) {
+        const item = enemys[i];
+        if (item && item.isActive) {
+          item.update();
+        }
       }
     }
     
-    // 批量更新宝物
-    for (let i = GameGlobal.databus.powerUps.length - 1; i >= 0; i--) {
-      const powerUp = GameGlobal.databus.powerUps[i];
-      if (powerUp && powerUp.isActive) {
-        powerUp.update();
+    // 批量更新道具
+    const powerUps = GameGlobal.databus.powerUps;
+    if (powerUps.length > 0) {
+      for (let i = 0; i < powerUps.length; i++) {
+        const item = powerUps[i];
+        if (item && item.isActive) {
+          item.update();
+        }
       }
     }
     
     // 批量更新超级武器
-    for (let i = GameGlobal.databus.superWeapons.length - 1; i >= 0; i--) {
-      const superWeapon = GameGlobal.databus.superWeapons[i];
-      if (superWeapon && superWeapon.isActive) {
-        superWeapon.update();
+    const superWeapons = GameGlobal.databus.superWeapons;
+    if (superWeapons.length > 0) {
+      for (let i = 0; i < superWeapons.length; i++) {
+        const item = superWeapons[i];
+        if (item && item.isActive) {
+          item.update();
+        }
       }
     }
   }
@@ -323,16 +425,30 @@ export default class Main {
         GameGlobal.databus.animations = GameGlobal.databus.animations.slice(-10);
       }
       
-      // 输出内存使用情况
-      const stats = GameGlobal.databus.getPerformanceStats();
-      console.log('Memory cleanup - Objects:', {
-        bullets: stats.bullets,
-        enemyBullets: stats.enemyBullets,
-        enemys: stats.enemys,
-        powerUps: stats.powerUps,
-        superWeapons: stats.superWeapons,
-        animations: stats.animations,
-        poolTotal: stats.poolStats.total
+      // 清理过多的粒子
+      if (this.player.trailParticles.length > 5) {
+        this.player.trailParticles.length = 5;
+      }
+      
+      // 清理敌机粒子
+      GameGlobal.databus.enemys.forEach(enemy => {
+        if (enemy && enemy.trailParticles && enemy.trailParticles.length > 3) {
+          enemy.trailParticles.length = 3;
+        }
+      });
+      
+      // 清理子弹粒子
+      GameGlobal.databus.bullets.forEach(bullet => {
+        if (bullet && bullet.trailParticles && bullet.trailParticles.length > 2) {
+          bullet.trailParticles.length = 2;
+        }
+      });
+      
+      // 清理敌机子弹粒子
+      GameGlobal.databus.enemyBullets.forEach(bullet => {
+        if (bullet && bullet.trailParticles && bullet.trailParticles.length > 2) {
+          bullet.trailParticles.length = 2;
+        }
       });
     } catch (error) {
       this.performanceMonitor.logError(error, 'forceCleanup');
@@ -340,9 +456,15 @@ export default class Main {
   }
 
   /**
-   * 优化渲染性能
+   * 优化渲染性能 - 添加智能渲染频率控制
    */
   render() {
+    // 智能渲染频率控制
+    this.renderFrameCount++;
+    if (this.renderFrameCount % this.currentRenderFrequency !== 0) {
+      return; // 跳过渲染
+    }
+    
     ctx.clearRect(0, 0, canvas.width, canvas.height); // 清空画布
 
     this.bg.render(ctx); // 绘制背景
@@ -420,26 +542,6 @@ export default class Main {
     
     // 渲染爆炸效果
     GameGlobal.explosionEffects.render(ctx);
-    
-    // 渲染性能信息（调试用，可以注释掉）
-    if (GameGlobal.databus.frame % 60 === 0) {
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '12px Arial';
-      ctx.fillText(`FPS: ${this.fps}`, 10, 20);
-      ctx.fillText(`Objects: ${bullets.length + enemyBullets.length + enemys.length + powerUps.length + superWeapons.length}`, 10, 35);
-      
-      // 显示性能状态
-      if (this.fps < 50) {
-        ctx.fillStyle = '#ff0000';
-        ctx.fillText('LOW FPS', 10, 50);
-      } else if (this.fps < 55) {
-        ctx.fillStyle = '#ffff00';
-        ctx.fillText('MED FPS', 10, 50);
-      } else {
-        ctx.fillStyle = '#00ff00';
-        ctx.fillText('GOOD FPS', 10, 50);
-      }
-    }
   }
 
   // 游戏逻辑更新主函数
@@ -471,8 +573,26 @@ export default class Main {
 
   // 实现游戏帧循环
   loop(currentTime) {
+    // 检测是否为移动设备
+    let isMobile = false;
+    if (typeof wx !== 'undefined' && wx.getSystemInfoSync) {
+      try {
+        const systemInfo = wx.getSystemInfoSync();
+        isMobile = systemInfo.platform === 'ios' || systemInfo.platform === 'android';
+      } catch (e) {
+        isMobile = true;
+      }
+    } else if (typeof navigator !== 'undefined') {
+      isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    } else {
+      isMobile = true;
+    }
+    
+    // 移动设备上更宽松的帧率控制
+    const frameTime = isMobile ? FRAME_TIME * 0.8 : FRAME_TIME;
+    
     // 帧率控制
-    if (currentTime - this.lastFrameTime < FRAME_TIME) {
+    if (currentTime - this.lastFrameTime < frameTime) {
       this.aniId = requestAnimationFrame(this.loop.bind(this));
       return;
     }
@@ -483,6 +603,13 @@ export default class Main {
       this.fps = this.frameCount;
       this.frameCount = 0;
       this.lastFpsUpdate = currentTime;
+      
+      // 帧率平滑
+      this.fpsHistory.push(this.fps);
+      if (this.fpsHistory.length > 5) {
+        this.fpsHistory.shift();
+      }
+      this.smoothedFps = Math.round(this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length);
       
       // 自适应性能优化
       this.adaptiveOptimization();
@@ -505,8 +632,23 @@ export default class Main {
     const totalObjects = stats.bullets + stats.enemyBullets + stats.enemys + 
                         stats.powerUps + stats.superWeapons;
     
+    // 检测是否为移动设备
+    let isMobile = false;
+    if (typeof wx !== 'undefined' && wx.getSystemInfoSync) {
+      try {
+        const systemInfo = wx.getSystemInfoSync();
+        isMobile = systemInfo.platform === 'ios' || systemInfo.platform === 'android';
+      } catch (e) {
+        isMobile = true;
+      }
+    } else if (typeof navigator !== 'undefined') {
+      isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    } else {
+      isMobile = true;
+    }
+    
     // 使用配置的阈值
-    if (this.fps < performanceConfig.LOW_FPS_THRESHOLD || 
+    if (this.smoothedFps < performanceConfig.LOW_FPS_THRESHOLD || 
         totalObjects > performanceConfig.MAX_OBJECTS_THRESHOLD) {
       // 减少粒子效果
       this.reduceParticleEffects();
@@ -514,15 +656,34 @@ export default class Main {
       // 清理更多无效对象
       this.cleanupObjects();
       
+      // 移动设备上更保守的渲染频率调整
+      if (isMobile) {
+        // 移动设备只在FPS极低时才降低渲染频率
+        if (this.smoothedFps < performanceConfig.CRITICAL_FPS_THRESHOLD) {
+          this.currentRenderFrequency = performanceConfig.RENDER_FREQUENCY.REDUCED;
+        } else {
+          this.currentRenderFrequency = performanceConfig.RENDER_FREQUENCY.NORMAL;
+        }
+      } else {
+        // 桌面设备使用原有的调整逻辑
+        if (this.smoothedFps < performanceConfig.CRITICAL_FPS_THRESHOLD) {
+          this.currentRenderFrequency = performanceConfig.RENDER_FREQUENCY.MINIMAL;
+        } else if (this.smoothedFps < performanceConfig.LOW_FPS_THRESHOLD) {
+          this.currentRenderFrequency = performanceConfig.RENDER_FREQUENCY.REDUCED;
+        }
+      }
+      
       // 如果FPS仍然很低，进一步优化
-      if (this.fps < performanceConfig.CRITICAL_FPS_THRESHOLD) {
+      if (this.smoothedFps < performanceConfig.CRITICAL_FPS_THRESHOLD) {
         this.aggressiveOptimization();
       }
+    } else {
+      // FPS正常，恢复渲染频率
+      this.currentRenderFrequency = performanceConfig.RENDER_FREQUENCY.NORMAL;
     }
     
     // 检查内存使用情况
     if (totalObjects > 100 || stats.poolStats.total > 200) {
-      console.warn('High memory usage detected, performing aggressive cleanup');
       this.forceCleanup();
     }
   }

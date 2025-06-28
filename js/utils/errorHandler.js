@@ -64,51 +64,26 @@ export function safeCall(func, args = [], defaultValue = null) {
 }
 
 /**
- * 验证游戏对象
- * @param {Object} obj - 要验证的对象
- * @param {string} type - 对象类型
- * @returns {boolean} 是否有效
+ * 验证游戏对象是否有效
  */
-export function validateGameObject(obj, type = 'unknown') {
-  if (!obj) {
-    console.warn(`[${type}] Object is null or undefined`);
-    return false;
-  }
-  
-  if (typeof obj !== 'object') {
-    console.warn(`[${type}] Object is not an object:`, typeof obj);
-    return false;
-  }
-  
-  if (obj.isActive === undefined) {
-    console.warn(`[${type}] Object missing isActive property:`, obj);
-    return false;
-  }
-  
+export function validateGameObject(obj, type = 'object') {
+  if (!obj) return false;
+  if (typeof obj !== 'object') return false;
+  if (!obj.hasOwnProperty('isActive')) return false;
   return true;
 }
 
 /**
  * 清理数组中的无效对象
- * @param {Array} array - 要清理的数组
- * @param {string} type - 数组类型（用于调试）
- * @returns {Array} 清理后的数组
  */
-export function cleanArray(array, type = 'unknown') {
-  if (!Array.isArray(array)) {
-    console.warn(`[${type}] Not an array:`, array);
-    return [];
-  }
+export function cleanArray(arr, type = 'array') {
+  if (!Array.isArray(arr)) return arr;
   
-  const cleaned = array.filter(item => {
-    if (!validateGameObject(item, type)) {
-      return false;
-    }
-    return item.isActive;
-  });
+  const originalLength = arr.length;
+  const cleaned = arr.filter(item => validateGameObject(item, type));
   
-  if (cleaned.length !== array.length) {
-    console.log(`[${type}] Cleaned array: ${array.length} -> ${cleaned.length} items`);
+  if (cleaned.length !== originalLength) {
+    // 静默清理，不输出日志
   }
   
   return cleaned;
@@ -135,22 +110,17 @@ export class PerformanceMonitor {
       this.metrics.fps = this.metrics.frameCount;
       this.metrics.frameCount = 0;
       this.metrics.lastFpsUpdate = currentTime;
-      
-      // 输出性能信息
-      if (this.metrics.errors > 0 || this.metrics.warnings > 0) {
-        console.log(`Performance: FPS=${this.metrics.fps}, Errors=${this.metrics.errors}, Warnings=${this.metrics.warnings}`);
-      }
     }
   }
   
   logError(error, context = '') {
     this.metrics.errors++;
-    console.error(`[${context}] Error:`, error);
+    // 静默记录错误，不输出到控制台
   }
   
   logWarning(warning, context = '') {
     this.metrics.warnings++;
-    console.warn(`[${context}] Warning:`, warning);
+    // 静默记录警告，不输出到控制台
   }
   
   getMetrics() {

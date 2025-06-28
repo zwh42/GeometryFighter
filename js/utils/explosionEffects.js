@@ -289,25 +289,7 @@ class ExplosionEffects {
    * 测试爆炸效果系统
    */
   test() {
-    console.log('=== 爆炸效果系统测试 ===');
-    console.log('当前爆炸效果数量:', this.explosions.length);
-    
-    // 测试创建爆炸效果
-    this.createExplosion(100, 100, '#ff6600', 30);
-    console.log('创建爆炸效果后数量:', this.explosions.length);
-    
-    // 测试创建命中效果
-    this.createHitEffect(200, 200, '#ffff00');
-    console.log('创建命中效果后数量:', this.explosions.length);
-    
-    // 测试更新
-    this.update();
-    console.log('更新后数量:', this.explosions.length);
-    
-    // 清理
-    this.clear();
-    console.log('清理后数量:', this.explosions.length);
-    console.log('=== 测试完成 ===');
+    // 测试完成，无需输出日志
   }
 }
 

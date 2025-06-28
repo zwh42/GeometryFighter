@@ -1,7 +1,12 @@
 import Pool from './base/pool';
+import SuperWeapon from './player/superweapon';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from './render';
 
 let instance;
+
+const __ = {
+  poolDic: Symbol('poolDic'),
+};
 
 /**
  * 全局状态管理器
@@ -30,20 +35,22 @@ export default class DataBus {
     instance = this;
   }
 
-  // 重置游戏状态
+  /**
+   * 重置游戏数据
+   */
   reset() {
-    this.frame = 0; // 当前帧数
-    this.score = 0; // 当前分数
-    this.bullets = []; // 存储子弹
-    this.enemyBullets = []; // 存储敌机子弹
-    this.enemys = []; // 存储敌人
-    this.animations = []; // 存储动画
-    this.powerUps = []; // 存储宝物
-    this.superWeapons = []; // 存储超级武器
-    this.isGameOver = false; // 游戏是否结束
-    this.lastSuperWeaponTime = 0; // 重置超级武器时间
+    this.frame = 0;
+    this.score = 0;
+    this.bullets = [];
+    this.enemyBullets = [];
+    this.enemys = [];
+    this.animations = [];
+    this.powerUps = [];
+    this.superWeapons = [];
+    this.isGameOver = false;
+    this.player = null;
     
-    // 清理对象池
+    // 重置对象池
     this.pool.clear();
   }
 
@@ -167,27 +174,20 @@ export default class DataBus {
     }
   }
 
-  // 检查是否应该生成超级武器
+  /**
+   * 检查超级武器生成
+   */
   checkSuperWeaponSpawn() {
     const currentTime = Date.now();
-    const timeSinceLastSpawn = currentTime - this.lastSuperWeaponTime;
-    const minTime = 40000; // 40秒
-    const maxTime = 90000; // 90秒
+    const spawnInterval = 15000; // 15秒生成一个超级武器
     
-    if (timeSinceLastSpawn >= minTime && 
-        (timeSinceLastSpawn >= maxTime || Math.random() < 0.02)) { // 2%概率生成
-      this.spawnSuperWeapon();
+    if (currentTime - this.lastSuperWeaponTime > spawnInterval) {
       this.lastSuperWeaponTime = currentTime;
+      
+      // 随机生成超级武器
+      const superWeapon = this.pool.getItemByClass('superWeapon', SuperWeapon);
+      superWeapon.init();
+      this.superWeapons.push(superWeapon);
     }
-  }
-
-  // 生成超级武器
-  spawnSuperWeapon() {
-    const SuperWeapon = require('./player/superweapon').default;
-    const superWeapon = this.pool.getItemByClass('superweapon', SuperWeapon);
-    const x = Math.random() * (SCREEN_WIDTH - 30);
-    const y = -30;
-    superWeapon.init(x, y);
-    this.superWeapons.push(superWeapon);
   }
 }
