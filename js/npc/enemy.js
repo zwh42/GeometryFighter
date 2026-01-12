@@ -209,68 +209,69 @@ export default class Enemy extends Animation {
     GameGlobal.databus.removeEnemy(this);
   }
 
-  render(ctx) {
-    if (!this.visible) return;
+  render(dummyCtx) {
+    if (!this.visible || !GameGlobal.renderer) return;
 
-    ctx.save();
-    
-    const glowLevel = (GameGlobal.main && GameGlobal.main.glowLevel !== undefined) ? GameGlobal.main.glowLevel : 1.0;
-    
-    if (glowLevel > 0) {
-      ctx.shadowColor = this.type.color[0];
-      ctx.shadowBlur = 20 * glowLevel;
-    }
-    
-    ctx.strokeStyle = this.type.color[0];
-    ctx.lineWidth = 2.5;
-    ctx.lineJoin = 'round';
-    
     const centerX = this.x + this.width / 2;
     const centerY = this.y + this.height / 2;
     const s = this.width / 2;
     
-    ctx.translate(centerX, centerY);
-    ctx.rotate(this.rotation);
-    
-    ctx.beginPath();
-    
+    // 颜色处理 (简易 Hex 转 RGB)
+    const colorHex = this.type.color[0];
+    const r = parseInt(colorHex.slice(1, 3), 16) / 255;
+    const g = parseInt(colorHex.slice(3, 5), 16) / 255;
+    const b = parseInt(colorHex.slice(5, 7), 16) / 255;
+
+    const cos = Math.cos(this.rotation);
+    const sin = Math.sin(this.rotation);
+
+    /**
+     * 辅助函数：绘制旋转后的线段
+     */
+    const drawLineRotated = (x1, y1, x2, y2) => {
+        const rx1 = x1 * cos - y1 * sin + centerX;
+        const ry1 = x1 * sin + y1 * cos + centerY;
+        const rx2 = x2 * cos - y2 * sin + centerX;
+        const ry2 = x2 * sin + y2 * cos + centerY;
+        GameGlobal.renderer.drawLine(rx1, ry1, rx2, ry2, r, g, b, 1.0);
+    };
+
     switch (this.type.shape) {
       case 'grunt': // 菱形
       case 'diamond':
-        ctx.moveTo(0, -s);
-        ctx.lineTo(s * 0.8, 0);
-        ctx.lineTo(0, s);
-        ctx.lineTo(-s * 0.8, 0);
-        ctx.closePath();
+        drawLineRotated(0, -s, s * 0.8, 0);
+        drawLineRotated(s * 0.8, 0, 0, s);
+        drawLineRotated(0, s, -s * 0.8, 0);
+        drawLineRotated(-s * 0.8, 0, 0, -s);
         break;
         
       case 'wanderer': // 内部有线条的正方形
-        ctx.strokeRect(-s, -s, s * 2, s * 2);
-        ctx.moveTo(-s, -s);
-        ctx.lineTo(s, s);
-        ctx.moveTo(s, -s);
-        ctx.lineTo(-s, s);
+        drawLineRotated(-s, -s, s, -s);
+        drawLineRotated(s, -s, s, s);
+        drawLineRotated(s, s, -s, s);
+        drawLineRotated(-s, s, -s, -s);
+        drawLineRotated(-s, -s, s, s);
+        drawLineRotated(s, -s, -s, s);
         break;
         
       case 'pinwheel': // 旋转十字/星形
         for (let i = 0; i < 4; i++) {
-          ctx.rotate(Math.PI / 2);
-          ctx.moveTo(0, 0);
-          ctx.lineTo(0, -s);
-          ctx.lineTo(s * 0.3, -s * 0.7);
+          const angle = (Math.PI / 2) * i;
+          const aCos = Math.cos(angle);
+          const aSin = Math.sin(angle);
+          // 这里需要复合旋转逻辑，简单点直接基于基础坐标
+          const xStart = 0, yStart = 0;
+          const xEnd = 0, yEnd = -s;
+          const xTip = s * 0.3, yTip = -s * 0.7;
+          
+          drawLineRotated(xStart * aCos - yStart * aSin, xStart * aSin + yStart * aCos, xEnd * aCos - yEnd * aSin, xEnd * aSin + yEnd * aCos);
+          drawLineRotated(xEnd * aCos - yEnd * aSin, xEnd * aSin + yEnd * aCos, xTip * aCos - yTip * aSin, xTip * aSin + yTip * aCos);
         }
         break;
     }
     
-    ctx.stroke();
-    
-    // 添加中心高光
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.restore();
+    // 中心高光
+    GameGlobal.renderer.drawLine(centerX - 1, centerY, centerX + 1, centerY, 1, 1, 1, 1);
   }
 
   // 添加尾焰粒子

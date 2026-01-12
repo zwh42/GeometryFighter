@@ -26,7 +26,7 @@ export default class Sprite extends Emitter {
    * 将精灵图绘制在canvas上
    */
   render(ctx) {
-    if (!this.visible) return;
+    if (!this.visible || !ctx) return;
 
     ctx.drawImage(this.img, this.x, this.y, this.width, this.height);
   }

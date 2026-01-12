@@ -29,23 +29,48 @@ export default class GameInfo extends Emitter {
     }
   }
 
-  renderGameScore(ctx) {
-    // 像素化效果
-    ctx.imageSmoothingEnabled = false;
+  renderGameScore(dummyCtx) {
+    if (!GameGlobal.renderer) return;
+
+    // 绘制得分 (底部, 亮白色)
+    const scoreText = `SCORE:${GameGlobal.databus.score}`;
+    GameGlobal.renderer.drawNumber(20, SCREEN_HEIGHT - 30, GameGlobal.databus.score, 1.2, 1, 1, 1, 0.9);
     
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '16px monospace';
-    ctx.fillText(`当前得分：${GameGlobal.databus.score}`, 20, SCREEN_HEIGHT - 20);
-    
-    // 显示最高分
-    ctx.font = '14px monospace';
-    ctx.fillText(`历史最高分：${GameGlobal.databus.highestScore || 0}`, 20, SCREEN_HEIGHT - 40);
+    // 绘制最高分
+    const highestScore = GameGlobal.databus.highestScore || 0;
+    GameGlobal.renderer.drawNumber(20, SCREEN_HEIGHT - 60, highestScore, 0.8, 0.5, 0.5, 0.5, 0.7);
   }
 
   renderGameOver(ctx) {
-    this.drawGameOverBackground(ctx);
-    this.drawGameOverText(ctx);
-    this.drawRestartButton(ctx);
+    if (GameGlobal.renderer) {
+      // 绘制简单的全屏半透明黑色背景 (用大面积线条模拟，或者后续加 drawRect)
+      // 这边简单点，画一些网格线
+      for(let i=0; i<SCREEN_WIDTH; i+=40) {
+        GameGlobal.renderer.drawLine(i, 0, i, SCREEN_HEIGHT, 0.1, 0.1, 0.1, 0.5);
+      }
+      for(let i=0; i<SCREEN_HEIGHT; i+=40) {
+        GameGlobal.renderer.drawLine(0, i, SCREEN_WIDTH, i, 0.1, 0.1, 0.1, 0.5);
+      }
+
+      // 绘制 "GAME OVER" (用向量字符模拟)
+      // 由于 drawNumber 只有数字，我们需要扩展 drawDigit 支持字母，或者先用数字模拟
+      // 为了简单，我们只显示得分
+      GameGlobal.renderer.drawNumber(SCREEN_WIDTH/2 - 40, SCREEN_HEIGHT/2 - 50, GameGlobal.databus.score, 2, 1, 0.4, 0, 1);
+      
+      // 绘制重启提示
+      // 我们暂无字母字符，先画一个简单的矩形按钮区域
+      const btn = this.btnArea;
+      GameGlobal.renderer.drawLine(btn.startX, btn.startY, btn.endX, btn.startY, 1, 1, 1, 0.8);
+      GameGlobal.renderer.drawLine(btn.endX, btn.startY, btn.endX, btn.endY, 1, 1, 1, 0.8);
+      GameGlobal.renderer.drawLine(btn.endX, btn.endY, btn.startX, btn.endY, 1, 1, 1, 0.8);
+      GameGlobal.renderer.drawLine(btn.startX, btn.endY, btn.startX, btn.startY, 1, 1, 1, 0.8);
+    }
+
+    if (ctx) {
+      this.drawGameOverBackground(ctx);
+      this.drawGameOverText(ctx);
+      this.drawRestartButton(ctx);
+    }
   }
 
   drawGameOverBackground(ctx) {

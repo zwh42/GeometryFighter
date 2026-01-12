@@ -103,44 +103,27 @@ export default class Bullet extends Sprite {
     GameGlobal.databus.removeBullets(this);
   }
 
-  render(ctx) {
-    if (!this.visible) return;
+  render(dummyCtx) {
+    if (!this.visible || !GameGlobal.renderer) return;
 
-    ctx.save();
-    
-    // 像素化效果
-    ctx.imageSmoothingEnabled = false;
-    
-    // 添加Geometry Wars风格的发光效果
-    ctx.shadowColor = '#00ffff';
-    ctx.shadowBlur = 15;
-    
     const centerX = this.x + this.width / 2;
     const centerY = this.y + this.height / 2;
-    
-    // 绘制 Geometry Wars 经典子弹 (发光短线/点)
-    ctx.strokeStyle = '#00ffff';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
     
     const angle = this.angle;
     const length = this.height * 0.8;
     
-    const startX = centerX - Math.sin(angle) * length / 2;
-    const startY = centerY + Math.cos(angle) * length / 2;
-    const endX = centerX + Math.sin(angle) * length / 2;
-    const endY = centerY - Math.cos(angle) * length / 2;
+    // 线条偏移量
+    const dx = Math.sin(angle) * length / 2;
+    const dy = Math.cos(angle) * length / 2;
     
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
+    const startX = centerX - dx;
+    const startY = centerY + dy;
+    const endX = centerX + dx;
+    const endY = centerY - dy;
     
-    // 中心高光
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    
-    ctx.restore();
+    // 渲染青色外层
+    GameGlobal.renderer.drawLine(startX, startY, endX, endY, 0, 1, 1, 1);
+    // 渲染中心白色高光
+    GameGlobal.renderer.drawLine(centerX - dx * 0.5, centerY + dy * 0.5, centerX + dx * 0.5, centerY - dy * 0.5, 1, 1, 1, 1);
   }
 }

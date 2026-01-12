@@ -9,12 +9,16 @@ import { getPerformanceConfig } from './config/performance'; // 导入性能配�
 import { validateGameObject, cleanArray, PerformanceMonitor } from './utils/errorHandler'; // 导入错误处理工具
 import deviceAdapter from './utils/deviceAdapter'; // 导入设备适配器
 import explosionEffects from './utils/explosionEffects'; // 导入爆炸效果系统
+import WebGLRenderer from './utils/webglRenderer'; // 导入 WebGL 渲染器
 
 const ENEMY_GENERATE_INTERVAL = 30;
 const performanceConfig = getPerformanceConfig();
 const TARGET_FPS = performanceConfig.TARGET_FPS;
 const FRAME_TIME = 1000 / TARGET_FPS; // 每帧时间间隔
-const ctx = canvas.getContext('2d'); // 获取canvas的2D绘图上下文;
+
+// 初始化 WebGL 渲染器代替 2D ctx
+GameGlobal.renderer = new WebGLRenderer(canvas);
+const ctx = canvas.getContext('2d'); // 保留 2D ctx 用于 UI 渲染 (或者后续全部切 WebGL)
 
 GameGlobal.databus = new DataBus(); // 全局数据管理，用于管理游戏状态和数据
 GameGlobal.musicManager = new Music(); // 全局音乐管理实例
@@ -459,16 +463,11 @@ export default class Main {
    * 优化渲染性能 - 添加智能渲染频率控制
    */
   render() {
-    // 智能渲染频率控制
-    this.renderFrameCount++;
-    if (this.renderFrameCount % this.currentRenderFrequency !== 0) {
-      return; // 跳过渲染
-    }
-    
-    ctx.clearRect(0, 0, canvas.width, canvas.height); // 清空画布
+    // WebGL 渲染起始
+    GameGlobal.renderer.clear();
 
-    this.bg.render(ctx); // 绘制背景
-    this.player.render(ctx); // 绘制玩家飞机
+    this.bg.render(null); // 绘制背景
+    this.player.render(null); // 绘制玩家飞机
     
     // 批量渲染所有游戏对象 - 只渲染可见和活跃的对象
     const bullets = GameGlobal.databus.bullets;
@@ -482,7 +481,7 @@ export default class Main {
       for (let i = 0; i < bullets.length; i++) {
         const item = bullets[i];
         if (item && item.isActive && item.visible) {
-          item.render(ctx);
+          item.render(null);
         }
       }
     }
@@ -492,7 +491,7 @@ export default class Main {
       for (let i = 0; i < enemyBullets.length; i++) {
         const item = enemyBullets[i];
         if (item && item.isActive && item.visible) {
-          item.render(ctx);
+          item.render(null);
         }
       }
     }
@@ -502,7 +501,7 @@ export default class Main {
       for (let i = 0; i < enemys.length; i++) {
         const item = enemys[i];
         if (item && item.isActive && item.visible) {
-          item.render(ctx);
+          item.render(null);
         }
       }
     }
@@ -512,7 +511,7 @@ export default class Main {
       for (let i = 0; i < powerUps.length; i++) {
         const item = powerUps[i];
         if (item && item.isActive && item.visible) {
-          item.render(ctx);
+          item.render(null);
         }
       }
     }
@@ -522,12 +521,12 @@ export default class Main {
       for (let i = 0; i < superWeapons.length; i++) {
         const item = superWeapons[i];
         if (item && item.isActive && item.visible) {
-          item.render(ctx);
+          item.render(null);
         }
       }
     }
     
-    this.gameInfo.render(ctx); // 绘制游戏UI
+    this.gameInfo.render(null); // 绘制游戏UI
     
     // 只渲染正在播放的动画
     const animations = GameGlobal.databus.animations;
@@ -535,13 +534,18 @@ export default class Main {
       for (let i = 0; i < animations.length; i++) {
         const ani = animations[i];
         if (ani && ani.isPlaying && ani.visible) {
-          ani.aniRender(ctx);
+          ani.aniRender(null);
         }
       }
     }
     
     // 渲染爆炸效果
-    GameGlobal.explosionEffects.render(ctx);
+    GameGlobal.explosionEffects.render(null);
+
+    // WebGL 渲染提交
+    GameGlobal.renderer.flush();
+
+    // UI 渲染 (GameInfo 等可能仍需 2D 绘制在顶层，或者后续全切)
   }
 
   // 游戏逻辑更新主函数

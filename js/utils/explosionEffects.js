@@ -57,72 +57,83 @@ class ExplosionEffects {
   createParticles(x, y, color, size) {
     const particles = [];
     const isMobile = GameGlobal.databus.isMobile;
-    const count = isMobile ? 12 : 35; // 稍微减少移动端默认数量以平衡
+    // WebGL 性能极佳，可以大幅增加粒子数量
+    const count = isMobile ? 60 : 200; 
     
     for (let i = 0; i < count; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const velocity = Math.random() * 8 + 2;
-      const p = this.getParticle();
-      
-      p.x = x;
-      p.y = y;
-      p.vx = Math.cos(angle) * velocity;
-      p.vy = Math.sin(angle) * velocity;
-      p.size = Math.random() * 3 + 1;
-      p.life = 1.0;
-      p.decay = Math.random() * 0.03 + 0.015;
-      p.color = color;
-      
-      particles.push(p);
+        const angle = Math.random() * Math.PI * 2;
+        const velocity = Math.random() * 12 + 2;
+        const p = this.getParticle();
+        
+        p.x = x;
+        p.y = y;
+        p.vx = Math.cos(angle) * velocity;
+        p.vy = Math.sin(angle) * velocity;
+        p.size = Math.random() * 4 + 2;
+        p.life = 1.0;
+        p.decay = Math.random() * 0.04 + 0.01;
+        p.color = color;
+        
+        particles.push(p);
     }
     return particles;
   }
 
   update() {
     for (let i = this.explosions.length - 1; i >= 0; i--) {
-      const exp = this.explosions[i];
-      exp.life -= exp.decay;
-      
-      for (let j = exp.particles.length - 1; j >= 0; j--) {
-        const p = exp.particles[j];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vx *= 0.96;
-        p.vy *= 0.96;
-        p.life -= p.decay;
+        const exp = this.explosions[i];
+        exp.life -= exp.decay;
         
-        if (p.life <= 0) {
-          this.releaseParticle(exp.particles.splice(j, 1)[0]);
+        for (let j = exp.particles.length - 1; j >= 0; j--) {
+            const p = exp.particles[j];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vx *= 0.94;
+            p.vy *= 0.94;
+            p.life -= p.decay;
+            
+            if (p.life <= 0) {
+                this.releaseParticle(exp.particles.splice(j, 1)[0]);
+            }
         }
-      }
-      
-      if (exp.life <= 0 || exp.particles.length === 0) {
-        const removed = this.explosions.splice(i, 1)[0];
-        removed.particles.forEach(p => this.releaseParticle(p));
-      }
+        
+        if (exp.life <= 0 || exp.particles.length === 0) {
+            const removed = this.explosions.splice(i, 1)[0];
+            removed.particles.forEach(p => this.releaseParticle(p));
+        }
     }
   }
 
-  render(ctx) {
-    if (this.explosions.length === 0) return;
-    
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    // 性能优化：在爆炸渲染中禁用 shadowBlur，它是性能杀手
-    // 如果需要光晕，应该使用预生成的图片或者单次 drawImage
+  /**
+   * 爆炸渲染函数 - 使用 WebGL 批处理
+   */
+  render(dummyCtx) {
+    if (!GameGlobal.renderer || this.explosions.length === 0) return;
 
     for (const exp of this.explosions) {
-      ctx.fillStyle = exp.color;
-      for (const p of exp.particles) {
-        ctx.globalAlpha = p.life * exp.life;
-        ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
-      }
+        // 解析颜色
+        const colorHex = exp.color;
+        const r = parseInt(colorHex.slice(1, 3), 16) / 255;
+        const g = parseInt(colorHex.slice(3, 5), 16) / 255;
+        const b = parseInt(colorHex.slice(5, 7), 16) / 255;
+
+        for (const p of exp.particles) {
+            const alpha = p.life * exp.life;
+            // 绘制为短线以模拟动感模糊
+            const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+            const tailSize = speed * 0.5;
+            
+            GameGlobal.renderer.drawLine(
+                p.x, p.y, 
+                p.x - p.vx * tailSize, p.y - p.vy * tailSize, 
+                r, g, b, alpha
+            );
+        }
     }
-    ctx.restore();
   }
 
   createHitEffect(x, y, color = '#ffffff') {
-    this.createExplosion(x, y, color, 10);
+    this.createExplosion(x, y, color, 12);
   }
 
   clear() {

@@ -60,54 +60,39 @@ export default class SuperWeapon extends Sprite {
     GameGlobal.databus.score += 100;
   }
 
-  render(ctx) {
-    if (!this.visible) return;
+  render(dummyCtx) {
+    if (!this.visible || !GameGlobal.renderer) return;
 
-    ctx.save();
-    
-    // 像素化效果
-    ctx.imageSmoothingEnabled = false;
-    
     // 闪烁光晕效果
     const currentTime = Date.now();
-    const blinkInterval = 300; // 300ms闪烁间隔
+    const blinkInterval = 300;
     const blinkIntensity = 0.5 + 0.5 * Math.sin(currentTime / blinkInterval * Math.PI);
     
-    // 动态发光效果
-    ctx.shadowColor = '#ffff00';
-    ctx.shadowBlur = 20 * blinkIntensity;
+    // 颜色：黄色
+    const r = 1.0, g = 1.0, b = 0.0;
     
-    const centerX = Math.floor(this.x + this.width / 2);
-    const centerY = Math.floor(this.y + this.height / 2);
-    const radius = Math.floor(Math.min(this.width, this.height) / 2);
+    const centerX = this.x + this.width / 2;
+    const centerY = this.y + this.height / 2;
+    const radius = Math.min(this.width, this.height) / 2;
     
-    // 绘制像素风格正六边形
-    ctx.beginPath();
+    // 绘制正六边形
     for (let i = 0; i < 6; i++) {
-      const angle = (i * 2 * Math.PI) / 6 - Math.PI / 2;
-      const x = Math.floor(centerX + radius * Math.cos(angle));
-      const y = Math.floor(centerY + radius * Math.sin(angle));
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
+      const a1 = (i * 2 * Math.PI) / 6 - Math.PI / 2;
+      const a2 = ((i+1) * 2 * Math.PI) / 6 - Math.PI / 2;
+      
+      const x1 = centerX + radius * Math.cos(a1);
+      const y1 = centerY + radius * Math.sin(a1);
+      const x2 = centerX + radius * Math.cos(a2);
+      const y2 = centerY + radius * Math.sin(a2);
+      
+      GameGlobal.renderer.drawLine(x1, y1, x2, y2, r, g, b, 1.0);
+      // 加粗感：多画一条内部细线
+      GameGlobal.renderer.drawLine(x1*0.9 + centerX*0.1, y1*0.9 + centerY*0.1, x2*0.9 + centerX*0.1, y2*0.9 + centerY*0.1, 1, 1, 1, 0.5 * blinkIntensity);
     }
-    ctx.closePath();
     
-    // 纯色填充（无渐变）
-    ctx.fillStyle = '#ffff00';
-    ctx.fill();
-    
-    // 添加像素风格边框
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
-    // 添加像素风格内部高光
-    ctx.fillStyle = `rgba(255, 255, 255, ${0.3 * blinkIntensity})`;
-    ctx.fill();
-    
-    ctx.restore();
+    // 绘制核心十字
+    const s = radius * 0.4;
+    GameGlobal.renderer.drawLine(centerX - s, centerY, centerX + s, centerY, 1, 1, 1, 1);
+    GameGlobal.renderer.drawLine(centerX, centerY - s, centerX, centerY + s, 1, 1, 1, 1);
   }
 } 

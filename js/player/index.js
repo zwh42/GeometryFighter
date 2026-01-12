@@ -228,47 +228,40 @@ export default class Player extends Animation {
     }
   }
 
-  // 渲染尾焰粒子 - 优化版本
-  renderTrailParticles(ctx) {
-    if (this.trailParticles.length === 0) {
+  // 渲染尾焰粒子 - 使用 WebGL 批处理
+  renderTrailParticles(dummyCtx) {
+    if (this.trailParticles.length === 0 || !GameGlobal.renderer) {
       return;
     }
     
-    ctx.save();
-    
-    // 像素化效果
-    ctx.imageSmoothingEnabled = false;
-    
-    // 批量渲染粒子，减少状态切换
     for (const particle of this.trailParticles) {
       const alpha = particle.life;
-      const size = Math.floor(particle.size * particle.life);
+      const size = particle.size * particle.life;
       
-      // 像素风格渲染，使用方形粒子
-      ctx.globalAlpha = alpha * 0.8;
-      ctx.fillStyle = '#00ffff';
+      // 颜色：青色
+      const r = 0.0, g = 1.0, b = 1.0;
       
-      // 绘制像素风格的方形粒子
-      ctx.fillRect(
-        Math.floor(particle.x - size / 2), 
-        Math.floor(particle.y - size / 2), 
-        size, 
-        size
+      // 绘制一个小十字模拟像素
+      GameGlobal.renderer.drawLine(
+          particle.x - size / 2, particle.y, 
+          particle.x + size / 2, particle.y, 
+          r, g, b, alpha * 0.8
+      );
+      GameGlobal.renderer.drawLine(
+          particle.x, particle.y - size / 2, 
+          particle.x, particle.y + size / 2, 
+          r, g, b, alpha * 0.8
       );
       
-      // 添加像素风格的高光
-      if (size > 1) {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(
-          Math.floor(particle.x - size / 2), 
-          Math.floor(particle.y - size / 2), 
-          1, 
-          1
+      // 白色高光
+      if (size > 1.5) {
+        GameGlobal.renderer.drawLine(
+            particle.x - 0.5, particle.y, 
+            particle.x + 0.5, particle.y, 
+            1, 1, 1, alpha * 0.5
         );
       }
     }
-    
-    ctx.restore();
   }
 
   // 受到伤害
@@ -319,8 +312,10 @@ export default class Player extends Animation {
     return PLAYER_SHOOT_INTERVAL;
   }
 
-  // 渲染血条
-  renderHealthBar(ctx) {
+  // 渲染血条 - 使用 WebGL 绘制
+  renderHealthBar(dummyCtx) {
+    if (!GameGlobal.renderer) return;
+
     const barWidth = 100;
     const barHeight = 12;
     const barX = 20;
@@ -329,58 +324,32 @@ export default class Player extends Animation {
     const healthPercent = this.health / this.maxHealth;
     
     // 闪烁效果
-    let shouldBlink = false;
     if (healthPercent <= 0.3) {
-      const blinkInterval = 3000;
-      const currentTime = Date.now();
-      shouldBlink = Math.floor(currentTime / (blinkInterval / 2)) % 2 === 0;
+      if (Math.floor(Date.now() / 250) % 2 === 0) return;
     }
     
-    // 如果正在闪烁且当前是隐藏状态，则不绘制
-    if (shouldBlink) {
-      return;
+    // 绘制背景边框 (暗灰色)
+    const rB = 0.2, gB = 0.2, bB = 0.2;
+    GameGlobal.renderer.drawLine(barX, barY, barX + barWidth, barY, rB, gB, bB, 1.0);
+    GameGlobal.renderer.drawLine(barX + barWidth, barY, barX + barWidth, barY + barHeight, rB, gB, bB, 1.0);
+    GameGlobal.renderer.drawLine(barX + barWidth, barY + barHeight, barX, barY + barHeight, rB, gB, bB, 1.0);
+    GameGlobal.renderer.drawLine(barX, barY + barHeight, barX, barY, rB, gB, bB, 1.0);
+
+    // 绘制血条内部
+    let r = 0, g = 1, b = 0;
+    if (healthPercent < 0.3) { r = 1; g = 0; }
+    else if (healthPercent < 0.6) { r = 1; g = 1; }
+
+    const fillWidth = barWidth * healthPercent;
+    if (fillWidth > 0) {
+        // 使用多条线填充高度
+        for (let i = 1; i < barHeight; i++) {
+            GameGlobal.renderer.drawLine(barX, barY + i, barX + fillWidth, barY + i, r, g, b, 1.0);
+        }
     }
-    
-    // 像素化效果
-    ctx.imageSmoothingEnabled = false;
-    
-    // 绘制血条背景 - 像素化处理
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(Math.floor(barX), Math.floor(barY), Math.floor(barWidth), Math.floor(barHeight));
-    
-    // 绘制血条边框 - 像素化处理
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(Math.floor(barX), Math.floor(barY), Math.floor(barWidth), Math.floor(barHeight));
-    
-    const fillWidth = Math.floor(barWidth * healthPercent);
-    
-    // 根据血量选择颜色 - 使用更鲜艳的像素风格颜色
-    let healthColor;
-    if (healthPercent > 0.6) {
-      healthColor = '#00ff00';
-    } else if (healthPercent > 0.3) {
-      healthColor = '#ffff00';
-    } else {
-      healthColor = '#ff0000';
-    }
-    
-    // 绘制血量 - 像素化处理
-    ctx.fillStyle = healthColor;
-    ctx.fillRect(Math.floor(barX + 1), Math.floor(barY + 1), fillWidth - 2, Math.floor(barHeight - 2));
-    
-    // 添加像素风格的装饰
-    if (fillWidth > 4) {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(Math.floor(barX + 2), Math.floor(barY + 2), 1, Math.floor(barHeight - 4));
-    }
-    
-    // 绘制血量文字 - 像素化处理
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${Math.ceil(this.health)}%`, Math.floor(barX + barWidth / 2), Math.floor(barY + 9));
-    ctx.textAlign = 'left';
+
+    // 绘制百分比数字 (白色)
+    GameGlobal.renderer.drawNumber(barX + barWidth + 5, barY + 2, Math.ceil(this.health), 1, 1, 1, 1, 0.8);
   }
 
   update() {
@@ -427,68 +396,33 @@ export default class Player extends Animation {
     // 先渲染尾焰粒子
     this.renderTrailParticles(ctx);
 
-    ctx.save();
-    
-    // 像素化效果 - 设置图像平滑为false以获得像素化效果
-    ctx.imageSmoothingEnabled = false;
-    
-    const glowLevel = (GameGlobal.main && GameGlobal.main.glowLevel !== undefined) ? GameGlobal.main.glowLevel : 1.0;
-    
-    // 渲染发光
-    if (glowLevel > 0) {
-      if (this.overloadMode) {
-        const currentTime = Date.now();
-        const blinkInterval = 200;
-        const shouldBlink = Math.floor(currentTime / blinkInterval) % 2 === 0;
-        if (shouldBlink) {
-          ctx.shadowColor = '#ff0000';
-          ctx.shadowBlur = 20 * glowLevel;
-        }
-      } else {
-        ctx.shadowColor = '#00ffff';
-        ctx.shadowBlur = 20 * glowLevel;
-      }
-    }
-    
     const centerX = this.x + this.width / 2;
     const centerY = this.y + this.height / 2;
     const w = this.width;
     const h = this.height;
-    
-    // 绘制 Geometry Wars 经典 "Claw" 战机 (双尾三角形)
-    ctx.strokeStyle = this.overloadMode ? '#ff0000' : '#00ffff';
-    ctx.lineWidth = 2.5;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    
-    ctx.beginPath();
-    // 顶点 (头部)
-    ctx.moveTo(centerX, centerY - h / 2);
-    
-    // 右侧翼和右尾
-    ctx.lineTo(centerX + w / 2, centerY + h / 2);
-    ctx.lineTo(centerX + w / 4, centerY + h / 4);
-    
-    // 左侧翼和左尾
-    ctx.moveTo(centerX, centerY - h / 2);
-    ctx.lineTo(centerX - w / 2, centerY + h / 2);
-    ctx.lineTo(centerX - w / 4, centerY + h / 4);
-    
-    // 连接两个尾部尖端 (可选，原版通常是不连接的开口状)
-    // ctx.moveTo(centerX + w / 4, centerY + h / 4);
-    // ctx.lineTo(centerX - w / 4, centerY + h / 4);
-    
-    ctx.stroke();
-    
-    // 添加中心核心点
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(centerX, centerY - 2, 2, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.restore();
 
-    // 渲染血条
+    // WebGL 渲染战机
+    if (GameGlobal.renderer) {
+      const r = this.overloadMode ? 1.0 : 0.0;
+      const g = this.overloadMode ? 0.0 : 1.0;
+      const b = this.overloadMode ? 0.0 : 1.0;
+      
+      // 头部到右翼
+      GameGlobal.renderer.drawLine(centerX, centerY - h / 2, centerX + w / 2, centerY + h / 2, r, g, b, 1.0);
+      // 右翼到右尾端
+      GameGlobal.renderer.drawLine(centerX + w / 2, centerY + h / 2, centerX + w / 4, centerY + h / 4, r, g, b, 1.0);
+      
+      // 头部到左翼
+      GameGlobal.renderer.drawLine(centerX, centerY - h / 2, centerX - w / 2, centerY + h / 2, r, g, b, 1.0);
+      // 左翼到左尾端
+      GameGlobal.renderer.drawLine(centerX - w / 2, centerY + h / 2, centerX - w / 4, centerY + h / 4, r, g, b, 1.0);
+
+      // 中心核心点 (用四根极短的线模拟一个小点，或后续增加 drawPoint)
+      const dotHalf = 1;
+      GameGlobal.renderer.drawLine(centerX - dotHalf, centerY - 2, centerX + dotHalf, centerY - 2, 1, 1, 1, 1);
+    }
+
+    // UI 渲染 (由于 GameInfo 还在用 2D，此处也保留 2D 兼容层，直到全部切换)
     this.renderHealthBar(ctx);
   }
 }
