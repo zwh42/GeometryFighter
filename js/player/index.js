@@ -432,119 +432,59 @@ export default class Player extends Animation {
     // 像素化效果 - 设置图像平滑为false以获得像素化效果
     ctx.imageSmoothingEnabled = false;
     
-    // 超载模式下的红色闪烁效果
-    if (this.overloadMode) {
-      const currentTime = Date.now();
-      const blinkInterval = 200; // 200ms闪烁间隔
-      const shouldBlink = Math.floor(currentTime / blinkInterval) % 2 === 0;
-      
-      if (shouldBlink) {
-        // 添加红色发光效果
-        ctx.shadowColor = '#ff0000';
-        ctx.shadowBlur = 20;
+    const glowLevel = (GameGlobal.main && GameGlobal.main.glowLevel !== undefined) ? GameGlobal.main.glowLevel : 1.0;
+    
+    // 渲染发光
+    if (glowLevel > 0) {
+      if (this.overloadMode) {
+        const currentTime = Date.now();
+        const blinkInterval = 200;
+        const shouldBlink = Math.floor(currentTime / blinkInterval) % 2 === 0;
+        if (shouldBlink) {
+          ctx.shadowColor = '#ff0000';
+          ctx.shadowBlur = 20 * glowLevel;
+        }
+      } else {
+        ctx.shadowColor = '#00ffff';
+        ctx.shadowBlur = 20 * glowLevel;
       }
-    } else {
-      // 正常发光效果 - 使用更鲜艳的青色
-      ctx.shadowColor = '#00ffff';
-      ctx.shadowBlur = 15;
     }
     
     const centerX = this.x + this.width / 2;
     const centerY = this.y + this.height / 2;
+    const w = this.width;
+    const h = this.height;
     
-    // 绘制像素风格战机 - 使用更鲜艳的颜色和像素化线条
+    // 绘制 Geometry Wars 经典 "Claw" 战机 (双尾三角形)
     ctx.strokeStyle = this.overloadMode ? '#ff0000' : '#00ffff';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     
-    // 机身（对称三角形）- 像素化处理
     ctx.beginPath();
-    ctx.moveTo(Math.floor(centerX), Math.floor(this.y)); // 机头
-    ctx.lineTo(Math.floor(centerX - 10), Math.floor(this.y + this.height)); // 左后角
-    ctx.lineTo(Math.floor(centerX + 10), Math.floor(this.y + this.height)); // 右后角
-    ctx.closePath();
+    // 顶点 (头部)
+    ctx.moveTo(centerX, centerY - h / 2);
+    
+    // 右侧翼和右尾
+    ctx.lineTo(centerX + w / 2, centerY + h / 2);
+    ctx.lineTo(centerX + w / 4, centerY + h / 4);
+    
+    // 左侧翼和左尾
+    ctx.moveTo(centerX, centerY - h / 2);
+    ctx.lineTo(centerX - w / 2, centerY + h / 2);
+    ctx.lineTo(centerX - w / 4, centerY + h / 4);
+    
+    // 连接两个尾部尖端 (可选，原版通常是不连接的开口状)
+    // ctx.moveTo(centerX + w / 4, centerY + h / 4);
+    // ctx.lineTo(centerX - w / 4, centerY + h / 4);
+    
     ctx.stroke();
     
-    // 后掠翼 - 像素化处理
-    // 左后掠翼
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(centerX - 10), Math.floor(centerY - 6));
-    ctx.lineTo(Math.floor(centerX - 4), Math.floor(centerY - 9));
-    ctx.lineTo(Math.floor(centerX - 28), Math.floor(centerY + 24));
-    ctx.lineTo(Math.floor(centerX - 22), Math.floor(centerY + 12));
-    ctx.lineTo(Math.floor(centerX - 12), Math.floor(centerY + 6));
-    ctx.lineTo(Math.floor(centerX - 10), Math.floor(centerY + 6));
-    ctx.lineTo(Math.floor(centerX - 10), Math.floor(centerY - 6));
-    ctx.closePath();
-    ctx.stroke();
-    
-    // 左机翼尾端连接线
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(centerX - 22), Math.floor(centerY + 12));
-    ctx.lineTo(Math.floor(centerX - 8), Math.floor(centerY + 8));
-    ctx.stroke();
-    
-    // 右后掠翼
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(centerX + 10), Math.floor(centerY - 6));
-    ctx.lineTo(Math.floor(centerX + 4), Math.floor(centerY - 9));
-    ctx.lineTo(Math.floor(centerX + 28), Math.floor(centerY + 24));
-    ctx.lineTo(Math.floor(centerX + 22), Math.floor(centerY + 12));
-    ctx.lineTo(Math.floor(centerX + 12), Math.floor(centerY + 6));
-    ctx.lineTo(Math.floor(centerX + 10), Math.floor(centerY + 6));
-    ctx.lineTo(Math.floor(centerX + 10), Math.floor(centerY - 6));
-    ctx.closePath();
-    ctx.stroke();
-    
-    // 右机翼尾端连接线
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(centerX + 22), Math.floor(centerY + 12));
-    ctx.lineTo(Math.floor(centerX + 8), Math.floor(centerY + 8));
-    ctx.stroke();
-    
-    // 尾翼（对称菱形）
-    // 左尾翼
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(centerX - 3), Math.floor(this.y + this.height - 4));
-    ctx.lineTo(Math.floor(centerX - 8), Math.floor(this.y + this.height));
-    ctx.lineTo(Math.floor(centerX - 3), Math.floor(this.y + this.height + 4));
-    ctx.lineTo(Math.floor(centerX + 3), Math.floor(this.y + this.height));
-    ctx.closePath();
-    ctx.stroke();
-    
-    // 右尾翼
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(centerX + 3), Math.floor(this.y + this.height - 4));
-    ctx.lineTo(Math.floor(centerX + 8), Math.floor(this.y + this.height));
-    ctx.lineTo(Math.floor(centerX + 3), Math.floor(this.y + this.height + 4));
-    ctx.lineTo(Math.floor(centerX - 3), Math.floor(this.y + this.height));
-    ctx.closePath();
-    ctx.stroke();
-    
-    // 驾驶舱（中心圆形）- 像素化处理
-    ctx.beginPath();
-    ctx.arc(Math.floor(centerX), Math.floor(centerY - 1), 3, 0, Math.PI * 2);
-    ctx.stroke();
-    
-    // 推进器喷嘴（对称）
-    ctx.beginPath();
-    ctx.arc(Math.floor(centerX - 4), Math.floor(this.y + this.height), 2, 0, Math.PI * 2);
-    ctx.arc(Math.floor(centerX + 4), Math.floor(this.y + this.height), 2, 0, Math.PI * 2);
-    ctx.stroke();
-    
-    // 添加像素风格的装饰细节
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    
-    // 机身上的像素装饰线
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(centerX - 2), Math.floor(centerY - 3));
-    ctx.lineTo(Math.floor(centerX + 2), Math.floor(centerY - 3));
-    ctx.stroke();
-    
-    // 机翼上的像素装饰点
+    // 添加中心核心点
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(Math.floor(centerX - 24), Math.floor(centerY + 8), 2, 2);
-    ctx.fillRect(Math.floor(centerX + 22), Math.floor(centerY + 8), 2, 2);
+    ctx.beginPath();
+    ctx.arc(centerX, centerY - 2, 2, 0, Math.PI * 2);
+    ctx.fill();
     
     ctx.restore();
 

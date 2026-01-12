@@ -115,49 +115,29 @@ export default class Bullet extends Sprite {
     ctx.shadowColor = '#00ffff';
     ctx.shadowBlur = 15;
     
-    const centerX = Math.floor(this.x + this.width / 2);
-    const centerY = Math.floor(this.y + this.height / 2);
+    const centerX = this.x + this.width / 2;
+    const centerY = this.y + this.height / 2;
     
-    // 绘制锐角形状的子弹 - Geometry Wars风格
-    ctx.beginPath();
+    // 绘制 Geometry Wars 经典子弹 (发光短线/点)
+    ctx.strokeStyle = '#00ffff';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
     
-    // 计算锐角的两条边
     const angle = this.angle;
-    const length = this.height;
-    const width = this.width;
+    const length = this.height * 0.8;
     
-    // 锐角的顶点（指向目标）
-    const tipX = Math.floor(centerX + Math.sin(angle) * length / 2);
-    const tipY = Math.floor(centerY - Math.cos(angle) * length / 2);
+    const startX = centerX - Math.sin(angle) * length / 2;
+    const startY = centerY + Math.cos(angle) * length / 2;
+    const endX = centerX + Math.sin(angle) * length / 2;
+    const endY = centerY - Math.cos(angle) * length / 2;
     
-    // 锐角的两条边
-    const leftAngle = angle + Math.PI / 6; // 30度角
-    const rightAngle = angle - Math.PI / 6; // -30度角
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
     
-    const leftX = Math.floor(centerX + Math.sin(leftAngle) * width / 2);
-    const leftY = Math.floor(centerY - Math.cos(leftAngle) * width / 2);
-    
-    const rightX = Math.floor(centerX + Math.sin(rightAngle) * width / 2);
-    const rightY = Math.floor(centerY - Math.cos(rightAngle) * width / 2);
-    
-    // 绘制锐角形状
-    ctx.moveTo(tipX, tipY);
-    ctx.lineTo(leftX, leftY);
-    ctx.lineTo(rightX, rightY);
-    ctx.closePath();
-    
-    // 使用Geometry Wars风格的青色
-    ctx.fillStyle = '#00ffff';
-    ctx.fill();
-    
-    // 添加内部高光
-    ctx.fillStyle = '#ffffff';
-    const highlightX = Math.floor(tipX - Math.sin(angle) * 2);
-    const highlightY = Math.floor(tipY + Math.cos(angle) * 2);
-    ctx.fillRect(highlightX - 1, highlightY - 1, 2, 2);
-    
-    // 添加边框
-    ctx.strokeStyle = '#0088ff';
+    // 中心高光
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1;
     ctx.stroke();
     

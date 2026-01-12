@@ -107,6 +107,7 @@ export default class Main {
   smoothedFps = 0;
 
   constructor() {
+    GameGlobal.main = this; // 暴露全局引用以便视觉特效系统访问背景
     // 当开始游戏被点击时，重新开始游戏
     this.gameInfo.on('restart', this.start.bind(this));
 
@@ -209,16 +210,15 @@ export default class Main {
           const enemy = nearbyEnemies[j];
           if (!enemy || !enemy.isActive) continue;
           
-          // 快速距离检查
+          // 快速距离平方检查 (避免 Math.sqrt)
           const enemyCenterX = enemy.x + enemy.width / 2;
           const enemyCenterY = enemy.y + enemy.height / 2;
-          const distance = Math.sqrt(
-            Math.pow(bulletCenterX - enemyCenterX, 2) + 
-            Math.pow(bulletCenterY - enemyCenterY, 2)
-          );
+          const dx = bulletCenterX - enemyCenterX;
+          const dy = bulletCenterY - enemyCenterY;
+          const distSq = dx * dx + dy * dy;
           
-          // 如果距离太远，跳过详细碰撞检测
-          if (distance > 50) continue;
+          // 如果距离平方大于阈值平方 (50^2 = 2500)，跳过详细碰撞检测
+          if (distSq > 2500) continue;
           
           if (enemy.isCollideWith(bullet)) {
             hitEnemy = enemy;
@@ -611,6 +611,12 @@ export default class Main {
       }
       this.smoothedFps = Math.round(this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length);
       
+      // 计算全局发光等级 (0-1)
+      if (this.smoothedFps >= 55) this.glowLevel = 1.0;
+      else if (this.smoothedFps >= 45) this.glowLevel = 0.6;
+      else if (this.smoothedFps >= 30) this.glowLevel = 0.3;
+      else this.glowLevel = 0;
+
       // 自适应性能优化
       this.adaptiveOptimization();
     }

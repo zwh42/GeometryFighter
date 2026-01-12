@@ -29,10 +29,7 @@ export default class Pool {
    */
   getItemByClass(name, className) {
     const pool = this.getPoolBySign(name);
-
-    const result = pool.length ? pool.shift() : new className();
-
-    return result;
+    return pool.length ? pool.pop() : new className();
   }
 
   /**
@@ -76,7 +73,9 @@ export default class Pool {
    * 强制清理对象池
    */
   forceCleanup() {
-    this.poolMap.clear();
+    for (const key in this[__.poolDic]) {
+      this[__.poolDic][key].length = 0;
+    }
   }
 
   /**
