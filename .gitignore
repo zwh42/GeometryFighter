@@ -8,6 +8,10 @@ miniprogram_npm/
 # 编译输出
 dist/
 build/
+library/
+temp/
+local/
+profiles/
 
 # 本地环境文件
 .env
@@ -42,4 +46,4 @@ yarn-error.log*
 # 其他
 *.bak
 *.orig
-*.rej 
+*.rej

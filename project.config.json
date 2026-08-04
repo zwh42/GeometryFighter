@@ -1,9 +1,9 @@
 {
-  "description": "项目配置文件",
+  "description": "Geometry Fighter - neon twin-stick survival shooter",
   "setting": {
     "urlCheck": false,
     "es6": true,
-    "postcss": true,
+    "postcss": false,
     "minified": true,
     "newFeature": true,
     "compileWorklet": false,
@@ -29,28 +29,15 @@
   "compileType": "game",
   "libVersion": "latest",
   "appid": "wxb822760f92857b7f",
-  "projectname": "quickstart",
-  "condition": {
-    "search": {
-      "current": -1,
-      "list": []
-    },
-    "conversation": {
-      "current": -1,
-      "list": []
-    },
-    "game": {
-      "currentL": -1,
-      "list": []
-    },
-    "miniprogram": {
-      "current": -1,
-      "list": []
-    }
-  },
-  "simulatorPluginLibVersion": {},
+  "projectname": "geometry-fighter",
+  "condition": {},
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "tests"
+      }
+    ],
     "include": []
   },
   "isGameTourist": false,

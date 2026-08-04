@@ -1,0 +1,10 @@
+{
+  "name": "geometry-fighter",
+  "uuid": "0c5a567f-41ae-4ece-b248-6ea928f57073",
+  "version": "3.8.8",
+  "private": true,
+  "description": "A Cocos Creator 3.8 WebGL neon twin-stick shooter for WeChat Mini Game",
+  "creator": {
+    "version": "3.8.8"
+  }
+}

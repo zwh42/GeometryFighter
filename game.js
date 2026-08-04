@@ -1,3 +1,1 @@
-import Main from './js/main';
-
-new Main();
+require('./js/main')
