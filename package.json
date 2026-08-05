@@ -4,6 +4,15 @@
   "version": "3.8.8",
   "private": true,
   "description": "A Cocos Creator 3.8 WebGL neon twin-stick shooter for WeChat Mini Game",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "npm run check:js && npm run check:types",
+    "check:js": "node scripts/check-js.js",
+    "check:types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3"
+  },
   "creator": {
     "version": "3.8.8"
   }
