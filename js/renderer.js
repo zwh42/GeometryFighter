@@ -10,12 +10,15 @@ class Renderer {
     this.particles = particles
     this.width = 0
     this.height = 0
+    this.safeAreaTop = 0
     this.stars = []
   }
 
-  resize(width, height) {
+  resize(width, height, safeArea) {
     this.width = width
     this.height = height
+    var safeTop = safeArea ? Number(safeArea.top) : 0
+    this.safeAreaTop = Number.isFinite(safeTop) ? math.clamp(safeTop, 0, height * 0.25) : 0
     this.stars.length = 0
     var count = Math.floor(width * height / 4300)
     for (var i = 0; i < count; i += 1) {
@@ -43,7 +46,9 @@ class Renderer {
     this.drawPlayerTrail(game.player)
     this.particles.draw(ctx)
     this.drawBullets(game.bullets)
+    this.drawSupplies(game.supplies, game.time)
     this.drawEnemies(game.enemies, game.time)
+    this.drawAllies(game.allies)
     this.drawPlayer(game.player, game.time)
     this.drawPopups(game.popups)
     this.drawHud(game)
@@ -166,8 +171,142 @@ class Renderer {
       ctx.moveTo(bullet.oldX, bullet.oldY)
       ctx.lineTo(bullet.x, bullet.y)
       ctx.stroke()
+      if (bullet.kind === 'missile') {
+        var angle = Math.atan2(bullet.vy, bullet.vx)
+        ctx.save()
+        ctx.translate(bullet.x, bullet.y)
+        ctx.rotate(angle)
+        ctx.fillStyle = config.COLORS.white
+        ctx.strokeStyle = config.COLORS.orange
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(8, 0)
+        ctx.lineTo(-5, -4)
+        ctx.lineTo(-2, 0)
+        ctx.lineTo(-5, 4)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.restore()
+      }
     }
     ctx.restore()
+  }
+
+  drawSupplies(supplies, time) {
+    var ctx = this.ctx
+    for (var i = 0; i < supplies.length; i += 1) {
+      var supply = supplies[i]
+      if (supply.dead) continue
+      var scale = supply.spawn > 0 ? math.clamp(1 - supply.spawn / 0.6, 0.08, 1) : 1
+      ctx.save()
+      ctx.translate(supply.x, supply.y)
+      ctx.rotate(time * 0.72)
+      ctx.scale(scale, scale)
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.strokeStyle = config.COLORS.hud
+      ctx.fillStyle = config.COLORS.hudFill
+      ctx.shadowColor = config.COLORS.hud
+      ctx.shadowBlur = 18
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.arc(0, 0, supply.radius + 4, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.lineWidth = 1.5
+      for (var orbit = 0; orbit < 2; orbit += 1) {
+        var orbitRadius = supply.radius - 3 - orbit * 6
+        var orbitStart = time * (orbit === 0 ? -1.4 : 1.9) + orbit * Math.PI * 0.5
+        ctx.beginPath()
+        ctx.arc(0, 0, orbitRadius, orbitStart, orbitStart + Math.PI * 1.25)
+        ctx.stroke()
+      }
+      for (var ray = 0; ray < 4; ray += 1) {
+        var rayAngle = ray * Math.PI * 0.5 - time * 0.28
+        ctx.beginPath()
+        ctx.moveTo(Math.cos(rayAngle) * (supply.radius + 8), Math.sin(rayAngle) * (supply.radius + 8))
+        ctx.lineTo(Math.cos(rayAngle) * (supply.radius + 15), Math.sin(rayAngle) * (supply.radius + 15))
+        ctx.stroke()
+      }
+      ctx.rotate(-time * 1.55)
+      ctx.strokeStyle = config.COLORS.white
+      ctx.shadowColor = config.COLORS.white
+      ctx.lineWidth = 1.8
+      if (supply.effect === 'detonation') {
+        for (var spoke = 0; spoke < 6; spoke += 1) {
+          var spokeAngle = spoke / 6 * Math.PI * 2
+          ctx.beginPath()
+          ctx.moveTo(Math.cos(spokeAngle) * 3, Math.sin(spokeAngle) * 3)
+          ctx.lineTo(Math.cos(spokeAngle) * 10, Math.sin(spokeAngle) * 10)
+          ctx.stroke()
+        }
+      } else if (supply.effect === 'overload') {
+        ctx.beginPath()
+        ctx.moveTo(2, -11)
+        ctx.lineTo(-5, 1)
+        ctx.lineTo(1, 1)
+        ctx.lineTo(-2, 11)
+        ctx.lineTo(7, -3)
+        ctx.lineTo(1, -3)
+        ctx.stroke()
+      } else {
+        this.pathPolygon(ctx, 9, 3, -Math.PI / 2)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.arc(0, 0, 2.6, 0, Math.PI * 2)
+        ctx.fillStyle = config.COLORS.white
+        ctx.fill()
+      }
+      ctx.fillStyle = config.COLORS.white
+      for (var pip = 0; pip < supply.maxHp; pip += 1) {
+        var pipAngle = pip / supply.maxHp * Math.PI * 2 - Math.PI * 0.5
+        ctx.globalAlpha = pip < supply.hp ? 0.95 : 0.18
+        ctx.beginPath()
+        ctx.arc(Math.cos(pipAngle) * (supply.radius + 7), Math.sin(pipAngle) * (supply.radius + 7), 1.8, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      ctx.restore()
+    }
+  }
+
+  pathPolygon(ctx, radius, sides, rotation) {
+    ctx.beginPath()
+    for (var i = 0; i < sides; i += 1) {
+      var angle = rotation + i / sides * Math.PI * 2
+      var x = Math.cos(angle) * radius
+      var y = Math.sin(angle) * radius
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.closePath()
+  }
+
+  drawAllies(allies) {
+    var ctx = this.ctx
+    for (var i = 0; i < allies.length; i += 1) {
+      var ally = allies[i]
+      if (ally.life <= 0) continue
+      ctx.save()
+      ctx.translate(ally.x, ally.y)
+      ctx.rotate(ally.angle)
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.strokeStyle = config.COLORS.cyan
+      ctx.fillStyle = config.COLORS.cyanFill
+      ctx.shadowColor = config.COLORS.cyan
+      ctx.shadowBlur = 12
+      ctx.lineWidth = 1.6
+      ctx.beginPath()
+      ctx.arc(0, 0, 5.5, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(12, 0)
+      ctx.lineTo(3, -7)
+      ctx.lineTo(-7, -4)
+      ctx.moveTo(3, 7)
+      ctx.lineTo(12, 0)
+      ctx.lineTo(-7, 4)
+      ctx.stroke()
+      ctx.restore()
+    }
   }
 
   drawPlayer(player, time) {
@@ -184,12 +323,21 @@ class Renderer {
     ctx.shadowColor = config.COLORS.cyan
     ctx.shadowBlur = 15
     ctx.beginPath()
-    ctx.moveTo(15, 0)
-    ctx.lineTo(-8, -10)
-    ctx.lineTo(-3, 0)
-    ctx.lineTo(-8, 10)
-    ctx.closePath()
-    ctx.fill()
+    ctx.moveTo(15, -8)
+    ctx.lineTo(6, -4)
+    ctx.lineTo(1, -10)
+    ctx.lineTo(-10, -8)
+    ctx.lineTo(-4, 0)
+    ctx.lineTo(-10, 8)
+    ctx.lineTo(1, 10)
+    ctx.lineTo(6, 4)
+    ctx.lineTo(15, 8)
+    ctx.stroke()
+    ctx.lineWidth = 1.3
+    ctx.beginPath()
+    ctx.moveTo(6, -4)
+    ctx.lineTo(-4, 0)
+    ctx.lineTo(6, 4)
     ctx.stroke()
     ctx.strokeStyle = config.COLORS.orange
     ctx.shadowColor = config.COLORS.orange
@@ -227,30 +375,39 @@ class Renderer {
     var ctx = this.ctx
     this.prepareEnemy(enemy)
     if (enemy.type === 'wanderer') {
-      ctx.beginPath()
-      ctx.moveTo(enemy.radius, 0)
-      ctx.lineTo(0, enemy.radius * 0.72)
-      ctx.lineTo(-enemy.radius, 0)
-      ctx.lineTo(0, -enemy.radius * 0.72)
-      ctx.closePath()
-      ctx.stroke()
-    } else if (enemy.type === 'grunt') {
-      this.polygon(enemy.radius, 4, Math.PI / 4)
-      this.polygon(enemy.radius * 0.45, 4, Math.PI / 4)
-    } else if (enemy.type === 'weaver') {
-      ctx.strokeRect(-enemy.radius * 0.65, -enemy.radius * 0.65, enemy.radius * 1.3, enemy.radius * 1.3)
-      ctx.rotate(Math.PI / 4)
-      ctx.strokeRect(-enemy.radius * 0.48, -enemy.radius * 0.48, enemy.radius * 0.96, enemy.radius * 0.96)
-    } else if (enemy.type === 'spinner') {
       for (var arm = 0; arm < 4; arm += 1) {
         ctx.rotate(Math.PI / 2)
         ctx.beginPath()
-        ctx.moveTo(0, 0)
-        ctx.quadraticCurveTo(enemy.radius * 0.25, -enemy.radius * 0.65, enemy.radius, -enemy.radius * 0.15)
+        ctx.moveTo(2, 0)
+        ctx.lineTo(enemy.radius * 0.42, -enemy.radius * 0.32)
+        ctx.lineTo(enemy.radius, -enemy.radius * 0.08)
+        ctx.lineTo(enemy.radius * 0.58, enemy.radius * 0.2)
         ctx.stroke()
       }
+    } else if (enemy.type === 'grunt') {
+      this.polygon(enemy.radius, 4, Math.PI / 4)
       ctx.beginPath()
-      ctx.arc(0, 0, 3, 0, Math.PI * 2)
+      ctx.moveTo(-enemy.radius * 0.7, 0)
+      ctx.lineTo(enemy.radius * 0.7, 0)
+      ctx.moveTo(0, -enemy.radius * 0.7)
+      ctx.lineTo(0, enemy.radius * 0.7)
+      ctx.stroke()
+    } else if (enemy.type === 'weaver') {
+      ctx.strokeRect(-enemy.radius * 0.65, -enemy.radius * 0.65, enemy.radius * 1.3, enemy.radius * 1.3)
+      this.polygon(enemy.radius * 0.74, 4, Math.PI / 4)
+      ctx.beginPath()
+      ctx.moveTo(-enemy.radius * 0.65, -enemy.radius * 0.65)
+      ctx.lineTo(0, -enemy.radius * 0.74)
+      ctx.moveTo(enemy.radius * 0.65, -enemy.radius * 0.65)
+      ctx.lineTo(enemy.radius * 0.74, 0)
+      ctx.stroke()
+    } else if (enemy.type === 'spinner') {
+      ctx.strokeRect(-enemy.radius * 0.72, -enemy.radius * 0.72, enemy.radius * 1.44, enemy.radius * 1.44)
+      ctx.beginPath()
+      ctx.moveTo(-enemy.radius * 0.72, -enemy.radius * 0.72)
+      ctx.lineTo(enemy.radius * 0.72, enemy.radius * 0.72)
+      ctx.moveTo(enemy.radius * 0.72, -enemy.radius * 0.72)
+      ctx.lineTo(-enemy.radius * 0.72, enemy.radius * 0.72)
       ctx.stroke()
     } else if (enemy.type === 'snake') {
       ctx.restore()
@@ -258,20 +415,51 @@ class Renderer {
       return
     } else if (enemy.type === 'repulsar') {
       ctx.beginPath()
-      ctx.arc(0, 0, enemy.radius, 0, Math.PI * 2)
+      ctx.moveTo(enemy.radius, 0)
+      ctx.lineTo(enemy.radius * 0.15, -enemy.radius * 0.62)
+      ctx.lineTo(-enemy.radius * 0.72, -enemy.radius * 0.42)
+      ctx.lineTo(-enemy.radius * 0.35, 0)
+      ctx.lineTo(-enemy.radius * 0.72, enemy.radius * 0.42)
+      ctx.lineTo(enemy.radius * 0.15, enemy.radius * 0.62)
+      ctx.closePath()
       ctx.stroke()
+      ctx.strokeStyle = config.COLORS.cyan
+      ctx.shadowColor = config.COLORS.cyan
       ctx.beginPath()
-      ctx.arc(0, 0, enemy.radius * 0.42, 0, Math.PI * 2)
+      ctx.moveTo(-enemy.radius * 0.72, -enemy.radius * 0.42)
+      ctx.lineTo(-enemy.radius, 0)
+      ctx.lineTo(-enemy.radius * 0.72, enemy.radius * 0.42)
       ctx.stroke()
-      for (var ray = 0; ray < 8; ray += 1) {
-        ctx.rotate(Math.PI / 4)
-        ctx.beginPath()
-        ctx.moveTo(enemy.radius + 2, 0)
-        ctx.lineTo(enemy.radius + 7 + Math.sin(time * 8) * 2, 0)
-        ctx.stroke()
-      }
     } else if (enemy.type === 'blackhole') {
       this.drawBlackhole(enemy, time)
+    } else if (enemy.type === 'dart') {
+      this.polygon(enemy.radius, 3, 0)
+      ctx.beginPath()
+      ctx.moveTo(-enemy.radius * 0.55, 0)
+      ctx.lineTo(enemy.radius, 0)
+      ctx.stroke()
+    } else if (enemy.type === 'orbiter') {
+      this.polygon(enemy.radius, 4, Math.PI / 4)
+      ctx.rotate(-enemy.angle * 2)
+      this.polygon(enemy.radius * 0.48, 4, Math.PI / 4)
+      ctx.beginPath()
+      ctx.arc(0, 0, enemy.radius * 1.45, 0, Math.PI * 2)
+      ctx.stroke()
+    } else if (enemy.type === 'crusher') {
+      this.polygon(enemy.radius, 5, -Math.PI / 2)
+      ctx.rotate(-enemy.angle * 2)
+      this.polygon(enemy.radius * 0.58, 5, -Math.PI / 2)
+    } else if (enemy.type === 'splitter') {
+      this.polygon(enemy.radius, 6, Math.PI / 6)
+      for (var split = 0; split < 3; split += 1) {
+        var splitAngle = split / 3 * Math.PI * 2
+        ctx.beginPath()
+        ctx.moveTo(0, 0)
+        ctx.lineTo(Math.cos(splitAngle) * enemy.radius, Math.sin(splitAngle) * enemy.radius)
+        ctx.stroke()
+      }
+    } else if (enemy.type === 'shard') {
+      this.polygon(enemy.radius, 3, 0)
     }
     if (enemy.spawn > 0) {
       ctx.globalAlpha = enemy.spawn / 0.55
@@ -313,6 +501,19 @@ class Renderer {
       ctx.strokeRect(-size * 0.7, -size * 0.7, size * 1.4, size * 1.4)
       ctx.restore()
     }
+    ctx.strokeStyle = config.COLORS.cyan
+    ctx.shadowColor = config.COLORS.cyan
+    ctx.save()
+    ctx.translate(enemy.x, enemy.y)
+    ctx.rotate(enemy.angle)
+    ctx.beginPath()
+    ctx.moveTo(enemy.radius, 0)
+    ctx.lineTo(-enemy.radius * 0.55, -enemy.radius * 0.72)
+    ctx.lineTo(-enemy.radius * 0.25, 0)
+    ctx.lineTo(-enemy.radius * 0.55, enemy.radius * 0.72)
+    ctx.closePath()
+    ctx.stroke()
+    ctx.restore()
     ctx.restore()
   }
 
@@ -330,6 +531,10 @@ class Renderer {
       ctx.arc(0, 0, radius + ring * 5, time * (1.2 + ring * 0.3) + ring, time * (1.2 + ring * 0.3) + ring + Math.PI * (1.15 + ring * 0.17))
       ctx.stroke()
     }
+    ctx.strokeStyle = config.COLORS.violet
+    ctx.beginPath()
+    ctx.arc(0, 0, radius * 0.48, -time * 1.7, -time * 1.7 + Math.PI * 1.35)
+    ctx.stroke()
   }
 
   drawPopups(popups) {
@@ -351,39 +556,51 @@ class Renderer {
 
   drawHud(game) {
     var ctx = this.ctx
-    var top = 24
+    var portrait = this.height >= this.width
+    var top = portrait ? Math.max(config.HUD.portraitTop, this.safeAreaTop + config.HUD.safeGap) : config.HUD.landscapeTop
+    var edge = portrait ? 20 : 28
     ctx.save()
     ctx.fillStyle = config.COLORS.hud
     ctx.shadowColor = config.COLORS.hud
     ctx.shadowBlur = 7
     ctx.textBaseline = 'top'
-    ctx.font = 'bold 13px monospace'
+    ctx.font = 'bold ' + (portrait ? 11 : 13) + 'px monospace'
     ctx.textAlign = 'left'
-    ctx.fillText('SCORE', 28, top)
-    ctx.font = 'bold 22px monospace'
-    ctx.fillText(this.formatScore(game.score), 28, top + 13)
+    ctx.fillText('SCORE', edge, top)
+    ctx.font = 'bold ' + (portrait ? 18 : 22) + 'px monospace'
+    ctx.fillText(this.formatScore(game.score), edge, top + 13)
     ctx.textAlign = 'right'
-    ctx.font = 'bold 13px monospace'
-    ctx.fillText('HIGH SCORE', this.width - 28, top)
-    ctx.font = 'bold 22px monospace'
-    ctx.fillText(this.formatScore(game.highScore), this.width - 28, top + 13)
+    ctx.font = 'bold ' + (portrait ? 11 : 13) + 'px monospace'
+    ctx.fillText('HIGH SCORE', this.width - edge, top)
+    ctx.font = 'bold ' + (portrait ? 18 : 22) + 'px monospace'
+    ctx.fillText(this.formatScore(game.highScore), this.width - edge, top + 13)
     ctx.textAlign = 'center'
     ctx.font = 'bold 15px monospace'
     ctx.fillText('×' + game.multiplier, this.width * 0.5, top + 6)
-    this.drawLifeBombIcons(game, top + 31)
+    this.drawLifeIcons(game, top + 31)
+    var specialStatus = []
+    if (game.missileTimer > 0) specialStatus.push('MISSILE ' + game.missileTimer.toFixed(1) + 's')
+    if (game.overloadTimer > 0) specialStatus.push('OVERDRIVE ' + game.overloadTimer.toFixed(1) + 's')
+    if (game.allies.length > 0) specialStatus.push('ALLY ×' + game.allies.length)
+    specialStatus.push(game.supplies.some(function (supply) { return !supply.dead }) ? 'SUPER ACTIVE' : 'SUPER ' + Math.ceil(game.supplyTimer) + 's')
+    if (specialStatus.length > 0) {
+      ctx.font = 'bold 10px monospace'
+      ctx.fillStyle = config.COLORS.cyan
+      ctx.fillText(specialStatus.join('  '), this.width * 0.5, top + config.HUD.statusOffset)
+    }
     if (game.messageTimer > 0) {
       ctx.globalAlpha = math.clamp(game.messageTimer, 0, 1)
       ctx.font = 'bold 20px monospace'
       ctx.fillStyle = config.COLORS.white
       ctx.shadowColor = config.COLORS.cyan
-      ctx.fillText(game.message, this.width * 0.5, 71)
+      ctx.fillText(game.message, this.width * 0.5, portrait ? top + config.HUD.messageOffset : 71)
     }
     ctx.restore()
   }
 
-  drawLifeBombIcons(game, y) {
+  drawLifeIcons(game, y) {
     var ctx = this.ctx
-    var totalWidth = game.lives * 14 + game.bombs * 14 + 18
+    var totalWidth = game.lives * 14
     var x = this.width * 0.5 - totalWidth * 0.5
     ctx.save()
     ctx.lineWidth = 1.4
@@ -395,17 +612,6 @@ class Renderer {
       ctx.lineTo(x + 3, y)
       ctx.lineTo(x, y + 5)
       ctx.closePath()
-      ctx.stroke()
-      x += 14
-    }
-    x += 12
-    for (var j = 0; j < game.bombs; j += 1) {
-      ctx.strokeStyle = config.COLORS.hud
-      ctx.beginPath()
-      ctx.arc(x + 4, y, 4, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.arc(x + 4, y, 1.5, 0, Math.PI * 2)
       ctx.stroke()
       x += 14
     }
@@ -421,28 +627,18 @@ class Renderer {
   drawControls(game) {
     if (game.state !== 'playing' || game.paused) return
     this.drawStick(this.input.left, config.COLORS.cyan)
-    this.drawStick(this.input.right, config.COLORS.magenta)
-    var ctx = this.ctx
-    var x = this.width * 0.5
-    var y = this.height - 40
-    ctx.save()
-    ctx.globalAlpha = 0.3
-    ctx.strokeStyle = config.COLORS.orange
-    ctx.fillStyle = 'rgba(255, 120, 35, 0.08)'
-    ctx.shadowColor = config.COLORS.orange
-    ctx.shadowBlur = 8
-    ctx.lineWidth = 1.5
-    ctx.beginPath()
-    ctx.arc(x, y, 27, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.stroke()
-    ctx.globalAlpha = 0.55
-    ctx.fillStyle = config.COLORS.orange
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.font = 'bold 9px monospace'
-    ctx.fillText('BOMB', x, y)
-    ctx.restore()
+    if (!this.input.singleHanded) this.drawStick(this.input.right, config.COLORS.magenta)
+    if (this.input.singleHanded && game.elapsed < config.WORLD.tutorialDuration) {
+      var ctx = this.ctx
+      ctx.save()
+      ctx.globalAlpha = game.elapsed <= config.WORLD.tutorialHold ? 0.82 : 0.82 * (config.WORLD.tutorialDuration - game.elapsed) / (config.WORLD.tutorialDuration - config.WORLD.tutorialHold)
+      ctx.fillStyle = config.COLORS.cyan
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.font = 'bold 13px sans-serif'
+      ctx.fillText('单指移动并射击 · 击破补给释放超级武器', this.width * 0.5, this.input.left.baseY - 78)
+      ctx.restore()
+    }
   }
 
   drawStick(stick, color) {
@@ -508,8 +704,8 @@ class Renderer {
     ctx.font = 'bold 13px monospace'
     ctx.fillText('RETRO GRID // SURVIVAL', this.width * 0.5, this.height * 0.32 + titleSize * 1.62)
     ctx.fillStyle = config.COLORS.white
-    ctx.font = '14px sans-serif'
-    ctx.fillText('左侧移动 · 右侧瞄准射击 · 中央释放炸弹', this.width * 0.5, this.height * 0.71)
+    ctx.font = (this.height >= this.width ? '12px' : '14px') + ' sans-serif'
+    ctx.fillText('下半屏单指拖动 · 移动方向即射击方向 · 击破补给释放超级武器', this.width * 0.5, this.height * 0.68)
     var pulse = 0.55 + Math.sin(game.time * 4) * 0.3
     ctx.globalAlpha = pulse
     ctx.fillStyle = config.COLORS.hud

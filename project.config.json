@@ -35,7 +35,95 @@
     "ignore": [
       {
         "type": "folder",
+        "value": ".omo"
+      },
+      {
+        "type": "folder",
+        "value": ".creator"
+      },
+      {
+        "type": "folder",
+        "value": ".codegraph"
+      },
+      {
+        "type": "folder",
+        "value": ".git"
+      },
+      {
+        "type": "folder",
+        "value": "assets"
+      },
+      {
+        "type": "folder",
+        "value": "build"
+      },
+      {
+        "type": "folder",
+        "value": "library"
+      },
+      {
+        "type": "folder",
+        "value": "marketing"
+      },
+      {
+        "type": "folder",
+        "value": "node_modules"
+      },
+      {
+        "type": "folder",
+        "value": "profiles"
+      },
+      {
+        "type": "folder",
+        "value": "scripts"
+      },
+      {
+        "type": "folder",
+        "value": "settings"
+      },
+      {
+        "type": "folder",
+        "value": "temp"
+      },
+      {
+        "type": "folder",
         "value": "tests"
+      },
+      {
+        "type": "file",
+        "value": ".eslintrc.js"
+      },
+      {
+        "type": "file",
+        "value": ".DS_Store"
+      },
+      {
+        "type": "file",
+        "value": ".gitignore"
+      },
+      {
+        "type": "file",
+        "value": "DESIGN.md"
+      },
+      {
+        "type": "file",
+        "value": "package-lock.json"
+      },
+      {
+        "type": "file",
+        "value": "package.json"
+      },
+      {
+        "type": "file",
+        "value": "project.private.config.json"
+      },
+      {
+        "type": "file",
+        "value": "README.md"
+      },
+      {
+        "type": "file",
+        "value": "tsconfig.json"
       }
     ],
     "include": []

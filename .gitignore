@@ -47,3 +47,6 @@ yarn-error.log*
 *.bak
 *.orig
 *.rej
+
+# 本地任务证据
+.omo/

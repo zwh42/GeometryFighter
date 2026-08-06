@@ -13,7 +13,7 @@ function touchPlatform() {
   }
 }
 
-test('touches drive both sticks and the central bomb action', function () {
+test('landscape touches drive both sticks without a bomb action', function () {
   var platform = touchPlatform()
   var input = new Input(platform)
   input.resize(800, 450)
@@ -44,8 +44,36 @@ test('touches drive both sticks and the central bomb action', function () {
   assert.deepEqual(input.move, { x: 0, y: 0 })
   assert.deepEqual(input.aim, { x: 0, y: 0 })
 
+  var actions = input.consumeActions()
+  assert.equal('bomb' in actions, false)
+})
+
+test('portrait touch uses one floating movement stick across the lower playfield', function () {
+  var platform = touchPlatform()
+  var input = new Input(platform)
+  input.resize(390, 844)
+
+  assert.equal(input.singleHanded, true)
+  assert.equal(input.left.baseX, 195)
+  assert.equal(input.left.baseY, 752)
+
   platform.handlers.start({
-    changedTouches: [{ identifier: 3, clientX: 400, clientY: 410 }]
+    changedTouches: [{ identifier: 7, clientX: 310, clientY: 690 }]
   })
-  assert.equal(input.consumeActions().bomb, true)
+  platform.handlers.move({
+    touches: [{ identifier: 7, clientX: 262, clientY: 690 }]
+  })
+
+  assert.ok(input.move.x < -0.99)
+  assert.deepEqual(input.aim, { x: 0, y: 0 })
+  assert.equal(input.right.active, false)
+
+  platform.handlers.end({
+    changedTouches: [{ identifier: 7, clientX: 262, clientY: 690 }]
+  })
+  platform.handlers.start({
+    changedTouches: [{ identifier: 8, clientX: 195, clientY: 644 }]
+  })
+  assert.equal(input.left.active, true)
+  assert.equal('bomb' in input.consumeActions(), false)
 })

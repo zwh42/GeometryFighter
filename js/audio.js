@@ -1,13 +1,35 @@
+const MUSIC_TRACKS = ['audio/bgm.mp3', 'audio/grid-pressure.mp3']
+
 class AudioSystem {
-  constructor(platform) {
+  constructor(platform, random) {
     this.platform = platform
     this.context = null
+    this.music = null
     this.enabled = true
     this.nextBeat = 0
     this.beatStep = 0
+    var randomValue = (random || Math.random)()
+    this.musicTrack = MUSIC_TRACKS[Math.floor(randomValue * MUSIC_TRACKS.length)]
+    this.startMusic()
+  }
+
+  startMusic() {
+    if (this.music || !this.platform.createInnerAudioContext) return
+    try {
+      var music = this.platform.createInnerAudioContext()
+      music.loop = true
+      music.autoplay = true
+      music.volume = 0.24
+      music.src = this.musicTrack
+      this.music = music
+    } catch (error) {
+      this.music = null
+    }
   }
 
   unlock() {
+    this.startMusic()
+    if (this.music && this.music.play) this.music.play()
     if (this.context || !this.enabled || !this.platform.createWebAudioContext) return
     try {
       this.context = this.platform.createWebAudioContext()
@@ -49,7 +71,7 @@ class AudioSystem {
     this.tone(size > 1 ? 120 : 180, size > 1 ? 0.32 : 0.16, 'sawtooth', size > 1 ? 0.11 : 0.055, 42)
   }
 
-  bomb() {
+  superDetonation() {
     this.tone(72, 0.8, 'sawtooth', 0.18, 24)
     this.tone(880, 0.45, 'sine', 0.07, 110)
   }
