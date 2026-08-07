@@ -2,6 +2,17 @@
 export type EnemyKind = 'wanderer' | 'grunt' | 'weaver' | 'spinner' | 'snake' | 'repulsar' | 'blackhole' | 'dart' | 'orbiter' | 'crusher' | 'splitter' | 'shard'
 export type GameState = 'title' | 'playing' | 'paused' | 'gameover'
 export type SuperWeaponKind = 'detonation' | 'overload' | 'allies'
+export type AssaultKind = 'swarm' | 'flank' | 'spiral' | 'siege'
+
+export interface AssaultProfile {
+  phase: number
+  wave: number
+  kind: AssaultKind
+  label: string
+  batchBonus: number
+  active: boolean
+  timeLeft: number
+}
 
 export interface Vector {
   x: number
@@ -84,8 +95,13 @@ export interface WorldEvent {
 export interface ControlState {
   move: Vector
   aim: Vector
+  engaged: boolean
   start: boolean
   pause: boolean
+}
+
+export type DirectionalTarget = Vector & {
+  readonly radius: number
 }
 
 const ENEMY_VALUE: Record<EnemyKind, number> = {
@@ -149,11 +165,26 @@ const ENEMY_HEALTH: Record<EnemyKind, number> = {
 }
 
 const MISSILE_DURATION = 5
-const MISSILE_SPEED = 650
+const MISSILE_SPEED = 460
 const MISSILE_TURN_RATE = 5.4
+const PLAYER_BULLET_SPEED = 570
+const PLAYER_FIRE_RATE = 0.105
+const MAX_BULLETS = 320
+export const AIM_INPUT_THRESHOLD = 0.18
+export const AIM_HEADING_RESPONSE = 14
+export const AIM_ASSIST_HALF_ANGLE = Math.PI * 26 / 180
+export const AIM_ASSIST_RANGE_RATIO = 0.62
 const SUPPLY_HITS = 8
 const OVERLOAD_DURATION = 8
 const ALLY_DURATION = 12
+const ASSAULT_DURATION = 18
+const ASSAULT_ACTIVE_DURATION = 15.5
+const ASSAULTS: readonly Pick<AssaultProfile, 'kind' | 'label' | 'batchBonus'>[] = [
+  { kind: 'swarm', label: 'SWARM', batchBonus: 2 },
+  { kind: 'flank', label: 'FLANK', batchBonus: 1 },
+  { kind: 'spiral', label: 'SPIRAL', batchBonus: 1 },
+  { kind: 'siege', label: 'SIEGE', batchBonus: 0 }
+]
 
 export function clamp(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(high, value))
@@ -173,11 +204,48 @@ export function angleDelta(current: number, target: number): number {
   return Math.atan2(Math.sin(target - current), Math.cos(target - current))
 }
 
+export function directionalTargetAngle(origin: Vector, heading: number, targets: readonly DirectionalTarget[], halfAngle: number, maxRange: number): number {
+  let selectedAngle = heading
+  let selectedScore = Number.POSITIVE_INFINITY
+  for (const target of targets) {
+    const dx = target.x - origin.x
+    const dy = target.y - origin.y
+    const distance = length(dx, dy)
+    if (distance < 0.0001 || distance > maxRange) continue
+    const angle = Math.atan2(dy, dx)
+    const error = Math.abs(angleDelta(heading, angle))
+    if (error > halfAngle) continue
+    const missDistance = Math.max(0, Math.sin(error) * distance - target.radius)
+    const score = missDistance + distance * 0.06
+    if (score < selectedScore) {
+      selectedAngle = angle
+      selectedScore = score
+    }
+  }
+  return selectedAngle
+}
+
 export function weaponTier(score: number): number {
   if (score >= 60000) return 4
   if (score >= 30000) return 3
   if (score >= 10000) return 2
   return 1
+}
+
+export function assaultAt(seconds: number): AssaultProfile {
+  const safeSeconds = Math.max(0, seconds)
+  const phase = Math.floor(safeSeconds / ASSAULT_DURATION)
+  const profile = ASSAULTS[phase % ASSAULTS.length]
+  const localTime = safeSeconds - phase * ASSAULT_DURATION
+  return {
+    phase,
+    wave: phase + 1,
+    kind: profile.kind,
+    label: profile.label,
+    batchBonus: profile.batchBonus,
+    active: localTime < ASSAULT_ACTIVE_DURATION,
+    timeLeft: ASSAULT_DURATION - localTime
+  }
 }
 
 export class GeometryWorld {
@@ -191,11 +259,14 @@ export class GeometryWorld {
   multiplier = 1
   kills = 0
   wave = 1
+  assault = assaultAt(0)
   nextLife = 75000
   nextSupply = 100000
   spawnClock = 0
   supplyClock = 12
   fireClock = 0
+  fireHeading = 0
+  hasFireHeading = false
   missileTimer = 0
   overloadTimer = 0
   seed = 0x7219af13
@@ -205,6 +276,7 @@ export class GeometryWorld {
   supplies: Supply[] = []
   allies: Ally[] = []
   events: WorldEvent[] = []
+  private readonly directionalTargets: DirectionalTarget[] = []
 
   resize(width: number, height: number): void {
     this.width = Math.max(320, width)
@@ -240,11 +312,14 @@ export class GeometryWorld {
     this.multiplier = 1
     this.kills = 0
     this.wave = 1
+    this.assault = assaultAt(0)
     this.nextLife = 75000
     this.nextSupply = 100000
     this.spawnClock = 0.7
     this.supplyClock = 12 + this.random() * 6
     this.fireClock = 0
+    this.fireHeading = 0
+    this.hasFireHeading = false
     this.missileTimer = 0
     this.overloadTimer = 0
     this.player = this.makePlayer()
@@ -253,7 +328,8 @@ export class GeometryWorld {
     this.supplies.length = 0
     this.allies.length = 0
     this.events.length = 0
-    this.pushEvent('wave', 0, 0, '#6ffcff', 1, 'GRID LEVEL 1')
+    this.directionalTargets.length = 0
+    this.pushEvent('wave', 0, 0, '#6ffcff', 1, 'ASSAULT 01 // SWARM')
   }
 
   update(dt: number, controls: ControlState): void {
@@ -265,6 +341,13 @@ export class GeometryWorld {
 
     const step = Math.min(dt, 0.034)
     this.elapsed += step
+    const nextAssault = assaultAt(this.elapsed)
+    if (nextAssault.wave !== this.wave) {
+      this.wave = nextAssault.wave
+      this.spawnClock = Math.min(this.spawnClock, 0.18)
+      this.pushEvent('wave', 0, 88, '#6ffcff', this.wave, `ASSAULT ${this.waveText()} // ${nextAssault.label}`)
+    }
+    this.assault = nextAssault
     this.updateSpecialTimers(step)
     this.updatePlayer(step, controls)
     this.updateSupplies(step)
@@ -273,7 +356,10 @@ export class GeometryWorld {
     this.updateAllies(step)
     this.resolveCollisions()
     this.spawnClock -= step
-    if (this.spawnClock <= 0) this.spawnWave()
+    if (this.spawnClock <= 0) {
+      if (this.assault.active) this.spawnWave()
+      else this.spawnClock = 0.15
+    }
     this.supplyClock -= step
     if (this.supplyClock <= 0 && !this.supplies.some((supply) => !supply.dead)) {
       this.spawnSupply()
@@ -326,15 +412,54 @@ export class GeometryWorld {
     player.x = clamp(player.x, -this.width * 0.5 + inset, this.width * 0.5 - inset)
     player.y = clamp(player.y, -this.height * 0.5 + inset, this.height * 0.5 - inset)
 
-    let aim = controls.aim
-    if (this.height >= this.width && length(aim.x, aim.y) <= 0.22) aim = controls.move
-    if (length(aim.x, aim.y) > 0.22) {
-      player.angle = Math.atan2(aim.y, aim.x)
+    const portrait = this.height >= this.width
+    const moveStrength = length(controls.move.x, controls.move.y)
+    if (portrait) {
+      if (moveStrength > AIM_INPUT_THRESHOLD) {
+        const desiredHeading = Math.atan2(controls.move.y, controls.move.x)
+        if (this.hasFireHeading) {
+          this.fireHeading += angleDelta(this.fireHeading, desiredHeading) * clamp(dt * AIM_HEADING_RESPONSE, 0, 1)
+        } else {
+          this.fireHeading = desiredHeading
+          this.hasFireHeading = true
+        }
+      }
+      if (this.hasFireHeading && (controls.engaged || moveStrength > AIM_INPUT_THRESHOLD)) {
+        player.angle += angleDelta(player.angle, this.fireHeading) * clamp(dt * AIM_HEADING_RESPONSE, 0, 1)
+        this.fireClock -= dt
+        if (this.fireClock <= 0) {
+          const launchAngle = this.directionalFireAngle(this.fireHeading)
+          player.angle += angleDelta(player.angle, launchAngle) * clamp(dt * AIM_HEADING_RESPONSE, 0, 1)
+          this.fire(launchAngle)
+        }
+      } else {
+        this.fireClock = Math.min(this.fireClock, 0.04)
+      }
+      if (!controls.engaged && moveStrength <= AIM_INPUT_THRESHOLD) this.hasFireHeading = false
+    } else if (length(controls.aim.x, controls.aim.y) > 0.22) {
+      player.angle = Math.atan2(controls.aim.y, controls.aim.x)
       this.fireClock -= dt
       if (this.fireClock <= 0) this.fire(player.angle)
     } else {
       this.fireClock = Math.min(this.fireClock, 0.04)
     }
+  }
+
+  private directionalFireAngle(heading: number): number {
+    this.directionalTargets.length = 0
+    for (const enemy of this.enemies) {
+      if (!enemy.dead && enemy.spawnTimer <= 0) this.directionalTargets.push(enemy)
+    }
+    for (const supply of this.supplies) {
+      if (!supply.dead && supply.spawnTimer <= 0) this.directionalTargets.push(supply)
+    }
+    return directionalTargetAngle(
+      this.player,
+      heading,
+      this.directionalTargets,
+      AIM_ASSIST_HALF_ANGLE,
+      Math.max(this.width, this.height) * AIM_ASSIST_RANGE_RATIO
+    )
   }
 
   private nearestEnemy(x: number, y: number): Enemy | null {
@@ -355,28 +480,45 @@ export class GeometryWorld {
 
   fire(angle: number): void {
     const tier = weaponTier(this.score)
-    const patterns = this.overloadTimer > 0
-      ? [-0.28, -0.21, -0.14, -0.07, 0, 0.07, 0.14, 0.21, 0.28]
-      : tier === 1 ? [0] : tier === 2 ? [-0.055, 0.055] : tier === 3 ? [-0.105, 0, 0.105] : [-0.17, -0.08, 0, 0.08, 0.17]
     const missile = this.missileTimer > 0
-    for (const offset of patterns) {
-      const shotAngle = angle + offset
-      const dx = Math.cos(shotAngle)
-      const dy = Math.sin(shotAngle)
-      this.bullets.push({
-        x: this.player.x + dx * 19,
-        y: this.player.y + dy * 19,
-        vx: dx * (missile ? MISSILE_SPEED : 790),
-        vy: dy * (missile ? MISSILE_SPEED : 790),
-        angle: shotAngle,
-        life: missile ? 2.2 : 1.2,
-        radius: missile ? 4.2 : tier >= 4 ? 4 : 3,
-        kind: missile ? 'missile' : 'bullet',
-        source: 'player'
-      })
+    if (this.overloadTimer > 0) {
+      for (let spread = -4; spread <= 4; spread += 1) this.spawnPlayerBullet(angle + spread * 0.07, spread * 1.4, missile)
+    } else if (tier === 1) {
+      this.spawnPlayerBullet(angle, 0, missile)
+    } else if (tier === 2) {
+      this.spawnPlayerBullet(angle, -4.5, missile)
+      this.spawnPlayerBullet(angle, 4.5, missile)
+    } else if (tier === 3) {
+      this.spawnPlayerBullet(angle - 0.105, 0, missile)
+      this.spawnPlayerBullet(angle, 0, missile)
+      this.spawnPlayerBullet(angle + 0.105, 0, missile)
+    } else {
+      this.spawnPlayerBullet(angle - 0.15, -3, missile)
+      this.spawnPlayerBullet(angle - 0.045, -3, missile)
+      this.spawnPlayerBullet(angle + 0.045, 3, missile)
+      this.spawnPlayerBullet(angle + 0.15, 3, missile)
     }
-    this.fireClock = this.overloadTimer > 0 ? 0.042 : tier >= 3 ? 0.075 : 0.09
+    this.fireClock = this.overloadTimer > 0 ? 0.042 : PLAYER_FIRE_RATE
     this.pushEvent('shoot', this.player.x, this.player.y, '#fff36a', tier, '')
+  }
+
+  private spawnPlayerBullet(angle: number, sideOffset: number, missile: boolean): void {
+    if (this.bullets.length >= MAX_BULLETS) return
+    const sideX = Math.cos(angle + Math.PI * 0.5) * sideOffset
+    const sideY = Math.sin(angle + Math.PI * 0.5) * sideOffset
+    const x = this.player.x + Math.cos(angle) * 14 + sideX
+    const y = this.player.y + Math.sin(angle) * 14 + sideY
+    this.bullets.push({
+      x,
+      y,
+      vx: Math.cos(angle) * (missile ? MISSILE_SPEED : PLAYER_BULLET_SPEED),
+      vy: Math.sin(angle) * (missile ? MISSILE_SPEED : PLAYER_BULLET_SPEED),
+      angle,
+      life: missile ? 2.2 : 1.25,
+      radius: missile ? 4.2 : 2.8,
+      kind: missile ? 'missile' : 'bullet',
+      source: 'player'
+    })
   }
 
   updateBullets(dt: number): void {
@@ -774,30 +916,47 @@ export class GeometryWorld {
   }
 
   spawnWave(): void {
-    const nextWave = 1 + Math.floor(this.elapsed / 20)
-    if (nextWave !== this.wave) {
-      this.wave = nextWave
-      this.pushEvent('wave', 0, 88, '#6ffcff', this.wave, `GRID LEVEL ${this.wave}`)
-    }
     const cap = Math.min(90, 24 + this.wave * 4)
     const living = this.enemies.reduce((count, enemy) => count + (enemy.dead ? 0 : 1), 0)
-    const batch = Math.min(7, 1 + Math.floor(this.elapsed / 32))
-    for (let index = 0; index < batch && living + index < cap; index += 1) this.spawnEnemy(this.pickEnemy())
+    const batch = Math.min(7, 1 + Math.floor(this.elapsed / 32) + this.assault.batchBonus)
+    const count = Math.min(batch, cap - living)
+    const side = Math.floor(this.random() * 4)
+    for (let index = 0; index < count; index += 1) this.spawnAssaultEnemy(this.pickEnemy(), side, index, count)
     this.spawnClock = Math.max(0.2, 1.08 - this.elapsed * 0.0055) * (0.78 + this.random() * 0.46)
+  }
+
+  private waveText(): string {
+    return this.wave < 10 ? `0${this.wave}` : String(this.wave)
   }
 
   pickEnemy(): EnemyKind {
     const pool: EnemyKind[] = ['wanderer', 'grunt', 'grunt']
+    if (this.assault.kind === 'swarm') pool.push('wanderer', 'grunt', 'grunt', 'weaver')
     if (this.elapsed > 12) pool.push('dart', 'dart')
     if (this.elapsed > 10) pool.push('weaver')
+    if (this.elapsed > 17 && this.assault.kind === 'flank') pool.push('dart', 'dart', 'weaver', 'orbiter')
     if (this.elapsed > 26) pool.push('orbiter')
     if (this.elapsed > 22) pool.push('spinner')
+    if (this.elapsed > 35 && this.assault.kind === 'spiral') pool.push('spinner', 'spinner', 'orbiter', 'snake')
     if (this.elapsed > 44) pool.push('splitter')
     if (this.elapsed > 36) pool.push('snake')
+    if (this.elapsed > 53 && this.assault.kind === 'siege') pool.push('splitter', 'snake', 'repulsar')
     if (this.elapsed > 62) pool.push('crusher')
     if (this.elapsed > 52) pool.push('repulsar')
     if (this.elapsed > 72 && this.random() < 0.15) return 'blackhole'
     return pool[Math.floor(this.random() * pool.length)]
+  }
+
+  private spawnAssaultEnemy(kind: EnemyKind, side: number, index: number, count: number): Enemy {
+    const halfWidth = this.width * 0.5
+    const halfHeight = this.height * 0.5
+    const inset = ENEMY_RADIUS[kind] + 24
+    const baseLane = (index + 1) / (count + 1)
+    const lane = clamp(baseLane + (this.random() - 0.5) * 0.16, 0.08, 0.92)
+    if (side === 0) return this.spawnEnemy(kind, -halfWidth + inset, -halfHeight + lane * this.height)
+    if (side === 1) return this.spawnEnemy(kind, halfWidth - inset, -halfHeight + lane * this.height)
+    if (side === 2) return this.spawnEnemy(kind, -halfWidth + lane * this.width, halfHeight - inset)
+    return this.spawnEnemy(kind, -halfWidth + lane * this.width, -halfHeight + inset)
   }
 
   spawnEnemy(kind: EnemyKind, x?: number, y?: number): Enemy {

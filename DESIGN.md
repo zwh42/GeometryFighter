@@ -3,8 +3,14 @@
 ## 0. Reference Study
 
 - The official [Steam release page](https://store.steampowered.com/app/8400/Geometry_Wars_Retro_Evolved/) establishes the dark reactive grid, white open-claw player, short gold projectile streams, and silhouette-first enemy readability.
+- GameSpot's original-release visual analysis describes that player ship more precisely as two nested hexagons with the forward side removed. That observable construction, also visible in its gameplay capture, is the fighter-shape contract used below rather than a generic arrowhead.
 - The official [Xbox store listing](https://www.xbox.com/en-us/games/store/geometry-wars-evolved/bp5g8k2m71pm) and its gameplay art confirm the core color families: cyan diamonds, green framed cubes, magenta crossed boxes, violet pinwheels, gold segmented snakes, and red/orange black-hole rings.
-- The control reference remains twin-stick in landscape. Portrait adapts the missing aim stick by firing along the current movement vector, preserving directional intent without target tracking.
+- The official [PewPew App Store listing](https://apps.apple.com/us/app/pewpew/id314964252) identifies its defining traits as multidirectional shooting, large enemy counts, five rule-driven modes, and sustained high frame rate. Its screenshots establish a cleaner pure-black field, thin luminous vector outlines, sparse magenta guides, grouped danger, and minimal telemetry.
+- The official [PewPew Live site](https://pewpew.live/) reinforces fast, diversified play and retro-futurist vector graphics. Geometry Fighter borrows those high-level principles through original silhouettes, Assault pacing, and telegraphed edge formations; it does not reproduce PewPew assets, level layouts, or interface composition.
+- Activision's official [Geometry Wars 3 iOS support page](https://support.activision.com/geometry-wars-3-dimensions/articles/geometry-wars-3-dimensions-for-ios) documents draggable, free, and fixed touch-stick layouts. Portrait therefore keeps a draggable floating stick instead of forcing the thumb to reach a fixed corner.
+- Apple's [Archero developer story](https://apps.apple.com/hk/story/id1476782679?l=en-GB) records that its team selected pause-to-fire after iteration because it made moving, shooting, and evading possible with one hand. Geometry Fighter adopts the useful part of that finding: returning the thumb to the stick center stops movement but preserves the last deliberate firing heading.
+- Apple's [Survivor.io guide](https://apps.apple.com/ph/iphone/story/id1641743438) distinguishes auto-targeting weapons from shotgun, sword, and bat attacks that follow movement direction. Geometry Fighter uses that directional contract for the default weapon and reserves continuous homing for temporary missiles and allies.
+- PewPew Live's official App Store description calls out twin-stick precision. Landscape retains that model; portrait intentionally trades independent aim for a remembered directional sector so one thumb remains sufficient.
 
 ## 1. Atmosphere & Identity
 
@@ -14,10 +20,10 @@ Geometry Fighter is a dark neon arcade instrument: a near-black arena, electrica
 
 | Role | Token | Value | Usage |
 |---|---|---:|---|
-| Arena | `background` | `#01040c` | Primary playfield |
-| Grid | `grid` | `#173b98` | Resting grid lines |
-| Grid energy | `gridHot` | `#476dff` | Distortion and strong grid feedback |
-| Primary light | `white` | `#f7ffff` | Player hull, borders, high-emphasis text |
+| Arena | `background` | `#000006` | Primary playfield |
+| Grid | `grid` | `#4a1046` | Sparse resting grid lines |
+| Grid energy | `gridHot` | `#15d8ff` | Distortion and strong grid feedback |
+| Primary light | `white` | `#ffffff` | Player hull, borders, high-emphasis text |
 | Reward / HUD | `hud` | `#b9ff36` | Score, supply, positive reward |
 | Reward fill | `hudFill` | `rgba(185, 255, 54, 0.08)` | Translucent supply surface |
 | Friendly | `cyan` | `#42efff` | Player systems, allies, ally fire |
@@ -67,9 +73,11 @@ Colors are centralized in `js/config.js` for the runtime renderer. Alpha variant
 ### Fighter
 
 - **Variants**: player (white/cyan), ally (smaller cyan).
+- **Player structure**: two concentric white open hexagons point toward the firing direction. The outer hull owns six vertices from the upper muzzle prong around the closed rear to the lower muzzle prong; the inset hull owns four vertices and repeats the same open-front claw. Neither hull closes, fills, gains a cockpit, or adds aircraft-like wings.
+- **Physical scale**: the player hull is approximately 31 × 26 physical pixels with 2.2–2.8 px primary strokes. The cyan under-glow stays at or below 7 px with low alpha so the white claw remains dominant. Cocos converts those values through the current view scale so its 720-unit design canvas does not shrink the fighter on narrow phones.
 - **States**: active, invulnerable flicker, destroyed, ally expiring.
-- **Motion**: player velocity trail; allies orbit smoothly and aim independently.
-- **Accessibility**: friendly silhouettes point in their firing direction and differ from enemy polygons.
+- **Motion**: player velocity trail carries thrust feedback without adding a permanent tail flame to the original-style hull; allies orbit smoothly and aim independently.
+- **Accessibility**: the player's paired open fronts point in the firing direction and remain distinct from every closed enemy polygon; allies retain their smaller circular-chevron silhouette so they cannot be mistaken for the player.
 
 ### Projectile
 
@@ -93,19 +101,35 @@ Colors are centralized in `js/config.js` for the runtime renderer. Alpha variant
 - **Motion**: darts alternate between tracking and short charge windows; orbiters hold a readable ring around the player; crushers pursue with high inertia; splitters drift inward and release three independently steered shards on destruction.
 - **Accessibility**: class identity never depends on hue alone; silhouette, rotation, scale, durability, and motion pattern reinforce one another.
 
+### Assault Director
+
+- **Structure**: repeating 18-second waves cycle through `SWARM`, `FLANK`, `SPIRAL`, and `SIEGE`, then repeat at the current difficulty scale.
+- **States**: 15.5-second reinforcement window followed by a 2.5-second recovery window; enemies already on the field remain dangerous during recovery.
+- **Composition**: SWARM favors numerous light shapes, FLANK emphasizes fast lateral threats, SPIRAL emphasizes orbiting and rotating movement, and SIEGE favors durable or splitting targets.
+- **Formation**: every batch chooses one arena edge and distributes its members across readable lanes. Segmented converging rings make each arrival visible before its collision becomes active.
+- **HUD**: `A## LABEL Ns` reports wave number, directive, and time remaining without creating a second control target.
+
 ### HUD and Touch Controls
 
 - **Structure**: score/high score, multiplier, lives, weapon tier, temporary special state, next-supply countdown, and one floating movement joystick.
-- **States**: title, playing, paused, game over, missile, overdrive, ally wing.
+- **States**: title, playing, paused, game over, missile, overdrive, ally wing, active directional sector, and center-hold fire.
 - **Layout**: the arena may extend behind notches, while telemetry is anchored below the platform safe-area inset; transient messages stack below the telemetry band rather than overlapping it.
-- **Accessibility**: single-hand portrait fire follows the current movement direction; the opening guidance fades during seconds 3.5–4.5 and is then removed from the battlefield. Keyboard and landscape twin-stick controls remain available for development.
+- **Interaction**: in portrait, a drag above the dead zone updates both movement and a smoothed remembered heading. Returning the knob to center stops movement but keeps firing along that heading while the touch remains held. Releasing the touch stops fire. Each volley may choose one live enemy or super supply inside a 52-degree forward sector, but every projectile becomes ballistic at spawn and never follows that target.
+- **Physical tuning**: the floating stick uses a 48 px travel/ring, 17 px knob, 7 px dead zone, and 35 px response span. Cocos converts those physical pixels into design-resolution units with the current view scale so the same thumb motion has the same response in both runtimes.
+- **Visible bounds**: landscape sticks anchor to the physical canvas bounds, not unused vertical design space, so each 48 px ring retains at least 26 px of bottom clearance.
+- **Feedback**: while the floating stick is active, two faint rays and a connecting arc expose the eligible firing sector. The center ray shows the remembered heading even when the knob returns to center.
+- **Accessibility**: the sector lowers thumb precision demands without hiding directional intent or selecting targets behind the player. The opening guidance fades during seconds 3.5–4.5 and is then removed from the battlefield. Keyboard and landscape twin-stick controls remain available for development.
 
 ## 6. Motion & Interaction
 
 | Mechanism | Timing | Purpose |
 |---|---:|---|
 | Opening guidance | 3.5 s hold + 1 s fade | Teaches the gesture without permanently covering combat |
-| Portrait directional fire | continuous while movement magnitude > 0.22 | Converts the movement gesture into a bounded firing heading without enemy tracking |
+| Assault wave | 15.5 s active + 2.5 s recovery | Alternates pressure profiles while preserving a readable breath between reinforcements |
+| Arrival telegraph | 450–550 ms | Announces a grouped edge breach before enemies become collidable |
+| Portrait heading response | 14 s⁻¹, retargetable | Smooths small thumb-angle jitter while preserving fast deliberate turns |
+| Portrait directional fire | continuous while touch is held after movement magnitude > 0.18 once | Remembers the last deliberate heading so center hold becomes a stable fire stance |
+| Directional assist sector | ±26°, 0.62 × long viewport axis | Selects one eligible target at volley time; selection favors the center ray and does not alter an in-flight bullet |
 | Projectile tracking | continuous, 5.4 rad/s response | Shows missile acquisition and course correction |
 | Supply spawn | 600 ms | Announces a target entering the arena |
 | Chain detonation | 65 ms stagger | Makes the full-screen effect legible as a cascade |
@@ -116,7 +140,7 @@ Colors are centralized in `js/config.js` for the runtime renderer. Alpha variant
 | Orbiter correction | continuous, distance-banded | Holds a legible ring rather than colliding as a normal chaser |
 | Splitter fragmentation | immediate on destruction | Converts one hexagonal threat into three visible shards |
 
-All motion represents gameplay state. Homing is reserved for the temporary missile power-up and allied ships; the default player weapon never tracks enemies. Motion updates are frame-delta based and remain retargetable every frame.
+All motion represents gameplay state. Homing is reserved for the temporary missile power-up and allied ships. Default bullets may receive one launch-angle correction toward an eligible target inside the visible sector, then preserve that velocity for their entire flight. Motion updates are frame-delta based and remain retargetable every frame.
 
 ## 7. Depth & Surface
 

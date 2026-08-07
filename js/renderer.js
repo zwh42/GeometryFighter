@@ -20,7 +20,7 @@ class Renderer {
     var safeTop = safeArea ? Number(safeArea.top) : 0
     this.safeAreaTop = Number.isFinite(safeTop) ? math.clamp(safeTop, 0, height * 0.25) : 0
     this.stars.length = 0
-    var count = Math.floor(width * height / 4300)
+    var count = Math.floor(width * height / 8200)
     for (var i = 0; i < count; i += 1) {
       this.stars.push({
         x: Math.random() * width,
@@ -70,7 +70,7 @@ class Renderer {
     ctx.save()
     for (var i = 0; i < this.stars.length; i += 1) {
       var star = this.stars[i]
-      ctx.globalAlpha = 0.16 + (Math.sin(time * 1.9 + star.phase) + 1) * 0.13
+      ctx.globalAlpha = 0.05 + (Math.sin(time * 1.9 + star.phase) + 1) * 0.045
       ctx.fillStyle = config.COLORS.white
       ctx.fillRect(star.x, star.y, star.size, star.size)
     }
@@ -88,8 +88,8 @@ class Renderer {
     var blackholes = game.blackholes
     ctx.save()
     ctx.strokeStyle = config.COLORS.grid
-    ctx.lineWidth = 0.7
-    ctx.globalAlpha = 0.27
+    ctx.lineWidth = 0.65
+    ctx.globalAlpha = 0.18
     for (var y = top; y <= bottom; y += step) {
       ctx.beginPath()
       for (var x = left; x <= right; x += 12) {
@@ -108,11 +108,20 @@ class Renderer {
       }
       ctx.stroke()
     }
-    ctx.globalAlpha = 0.9
+    ctx.globalAlpha = 0.48
+    ctx.strokeStyle = config.COLORS.magenta
+    ctx.lineWidth = 0.8
+    ctx.beginPath()
+    ctx.moveTo(left, this.height * 0.5)
+    ctx.lineTo(right, this.height * 0.5)
+    ctx.moveTo(this.width * 0.5, top)
+    ctx.lineTo(this.width * 0.5, bottom)
+    ctx.stroke()
+    ctx.globalAlpha = 0.78
     ctx.strokeStyle = config.COLORS.white
-    ctx.lineWidth = 1.5
+    ctx.lineWidth = 1.2
     ctx.shadowColor = config.COLORS.cyan
-    ctx.shadowBlur = 10
+    ctx.shadowBlur = 6
     ctx.strokeRect(left, top, right - left, bottom - top)
     ctx.restore()
   }
@@ -318,41 +327,61 @@ class Renderer {
     ctx.rotate(player.angle)
     ctx.globalCompositeOperation = 'lighter'
     ctx.strokeStyle = config.COLORS.white
-    ctx.fillStyle = 'rgba(80, 235, 255, 0.15)'
-    ctx.lineWidth = 2
+    ctx.lineWidth = 2.2
     ctx.shadowColor = config.COLORS.cyan
     ctx.shadowBlur = 15
     ctx.beginPath()
-    ctx.moveTo(15, -8)
-    ctx.lineTo(6, -4)
-    ctx.lineTo(1, -10)
-    ctx.lineTo(-10, -8)
-    ctx.lineTo(-4, 0)
-    ctx.lineTo(-10, 8)
-    ctx.lineTo(1, 10)
-    ctx.lineTo(6, 4)
-    ctx.lineTo(15, 8)
+    ctx.moveTo(18, -8)
+    ctx.lineTo(3, -13)
+    ctx.lineTo(-13, -7)
+    ctx.lineTo(-13, 7)
+    ctx.lineTo(3, 13)
+    ctx.lineTo(18, 8)
     ctx.stroke()
-    ctx.lineWidth = 1.3
+    ctx.lineWidth = 1.45
     ctx.beginPath()
-    ctx.moveTo(6, -4)
-    ctx.lineTo(-4, 0)
-    ctx.lineTo(6, 4)
-    ctx.stroke()
-    ctx.strokeStyle = config.COLORS.orange
-    ctx.shadowColor = config.COLORS.orange
-    ctx.beginPath()
-    ctx.moveTo(-6, -5)
-    ctx.lineTo(-14 - Math.random() * 5, 0)
-    ctx.lineTo(-6, 5)
+    ctx.moveTo(10, -3.5)
+    ctx.lineTo(-4, -7)
+    ctx.lineTo(-4, 7)
+    ctx.lineTo(10, 3.5)
     ctx.stroke()
     ctx.restore()
   }
 
   drawEnemies(enemies, time) {
     for (var i = 0; i < enemies.length; i += 1) {
+      if (enemies[i].spawn > 0) this.drawSpawnTelegraph(enemies[i], time)
       this.drawEnemy(enemies[i], time)
     }
+  }
+
+  drawSpawnTelegraph(enemy, time) {
+    var ctx = this.ctx
+    var progress = math.clamp(1 - enemy.spawn / 0.55, 0, 1)
+    var radius = enemy.radius * (2.4 - progress * 0.65)
+    ctx.save()
+    ctx.translate(enemy.x, enemy.y)
+    ctx.rotate(time * 2.4 + enemy.phase)
+    ctx.globalCompositeOperation = 'lighter'
+    ctx.globalAlpha = 0.34 + progress * 0.38
+    ctx.strokeStyle = enemy.color
+    ctx.shadowColor = enemy.color
+    ctx.shadowBlur = 7
+    ctx.lineWidth = 1.1
+    for (var ring = 0; ring < 2; ring += 1) {
+      var start = ring * Math.PI + progress * 1.8
+      ctx.beginPath()
+      ctx.arc(0, 0, radius + ring * 5, start, start + Math.PI * 0.72)
+      ctx.stroke()
+    }
+    for (var tick = 0; tick < 4; tick += 1) {
+      var angle = tick * Math.PI * 0.5
+      ctx.beginPath()
+      ctx.moveTo(Math.cos(angle) * (radius + 7), Math.sin(angle) * (radius + 7))
+      ctx.lineTo(Math.cos(angle) * (radius + 13), Math.sin(angle) * (radius + 13))
+      ctx.stroke()
+    }
+    ctx.restore()
   }
 
   prepareEnemy(enemy) {
@@ -366,9 +395,9 @@ class Renderer {
     ctx.globalCompositeOperation = 'lighter'
     ctx.strokeStyle = enemy.color
     ctx.fillStyle = enemy.color
-    ctx.lineWidth = 1.7
+    ctx.lineWidth = 1.4
     ctx.shadowColor = enemy.color
-    ctx.shadowBlur = 11
+    ctx.shadowBlur = 7
   }
 
   drawEnemy(enemy, time) {
@@ -583,6 +612,7 @@ class Renderer {
     if (game.overloadTimer > 0) specialStatus.push('OVERDRIVE ' + game.overloadTimer.toFixed(1) + 's')
     if (game.allies.length > 0) specialStatus.push('ALLY ×' + game.allies.length)
     specialStatus.push(game.supplies.some(function (supply) { return !supply.dead }) ? 'SUPER ACTIVE' : 'SUPER ' + Math.ceil(game.supplyTimer) + 's')
+    specialStatus.push('A' + (game.assault.wave < 10 ? '0' : '') + game.assault.wave + ' ' + game.assault.label + ' ' + Math.ceil(game.assault.timeLeft) + 's')
     if (specialStatus.length > 0) {
       ctx.font = 'bold 10px monospace'
       ctx.fillStyle = config.COLORS.cyan
@@ -593,7 +623,7 @@ class Renderer {
       ctx.font = 'bold 20px monospace'
       ctx.fillStyle = config.COLORS.white
       ctx.shadowColor = config.COLORS.cyan
-      ctx.fillText(game.message, this.width * 0.5, portrait ? top + config.HUD.messageOffset : 71)
+      ctx.fillText(game.message, this.width * 0.5, top + config.HUD.messageOffset)
     }
     ctx.restore()
   }
@@ -626,7 +656,8 @@ class Renderer {
 
   drawControls(game) {
     if (game.state !== 'playing' || game.paused) return
-    this.drawStick(this.input.left, config.COLORS.cyan)
+    var heading = this.input.singleHanded && game.hasFireHeading ? game.fireHeading : null
+    this.drawStick(this.input.left, config.COLORS.cyan, heading)
     if (!this.input.singleHanded) this.drawStick(this.input.right, config.COLORS.magenta)
     if (this.input.singleHanded && game.elapsed < config.WORLD.tutorialDuration) {
       var ctx = this.ctx
@@ -636,14 +667,36 @@ class Renderer {
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.font = 'bold 13px sans-serif'
-      ctx.fillText('单指移动并射击 · 击破补给释放超级武器', this.width * 0.5, this.input.left.baseY - 78)
+      ctx.fillText('单指移动 · 回中射击 · 扇区命中', this.width * 0.5, this.input.left.baseY - 78)
       ctx.restore()
     }
   }
 
-  drawStick(stick, color) {
+  drawStick(stick, color, heading) {
     var ctx = this.ctx
     ctx.save()
+    if (stick.active && heading !== null && heading !== undefined) {
+      var sectorRadius = 66
+      ctx.globalAlpha = 0.34
+      ctx.strokeStyle = color
+      ctx.lineWidth = 1
+      ctx.shadowColor = color
+      ctx.shadowBlur = 5
+      ctx.beginPath()
+      ctx.moveTo(stick.baseX, stick.baseY)
+      ctx.lineTo(stick.baseX + Math.cos(heading - config.WORLD.aimAssistHalfAngle) * sectorRadius, stick.baseY + Math.sin(heading - config.WORLD.aimAssistHalfAngle) * sectorRadius)
+      ctx.moveTo(stick.baseX, stick.baseY)
+      ctx.lineTo(stick.baseX + Math.cos(heading + config.WORLD.aimAssistHalfAngle) * sectorRadius, stick.baseY + Math.sin(heading + config.WORLD.aimAssistHalfAngle) * sectorRadius)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.arc(stick.baseX, stick.baseY, sectorRadius, heading - config.WORLD.aimAssistHalfAngle, heading + config.WORLD.aimAssistHalfAngle)
+      ctx.stroke()
+      ctx.globalAlpha = 0.55
+      ctx.beginPath()
+      ctx.moveTo(stick.baseX, stick.baseY)
+      ctx.lineTo(stick.baseX + Math.cos(heading) * 58, stick.baseY + Math.sin(heading) * 58)
+      ctx.stroke()
+    }
     ctx.globalAlpha = stick.active ? 0.48 : 0.2
     ctx.strokeStyle = color
     ctx.fillStyle = color
@@ -702,10 +755,10 @@ class Renderer {
     ctx.shadowBlur = 8
     ctx.fillStyle = config.COLORS.cyan
     ctx.font = 'bold 13px monospace'
-    ctx.fillText('RETRO GRID // SURVIVAL', this.width * 0.5, this.height * 0.32 + titleSize * 1.62)
+    ctx.fillText('VECTOR ASSAULT // SURVIVAL', this.width * 0.5, this.height * 0.32 + titleSize * 1.62)
     ctx.fillStyle = config.COLORS.white
     ctx.font = (this.height >= this.width ? '12px' : '14px') + ' sans-serif'
-    ctx.fillText('下半屏单指拖动 · 移动方向即射击方向 · 击破补给释放超级武器', this.width * 0.5, this.height * 0.68)
+    ctx.fillText('单指拖动 · 回中射击 · 扇区命中', this.width * 0.5, this.height * 0.68)
     var pulse = 0.55 + Math.sin(game.time * 4) * 0.3
     ctx.globalAlpha = pulse
     ctx.fillStyle = config.COLORS.hud

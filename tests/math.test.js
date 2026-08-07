@@ -20,6 +20,32 @@ test('difficulty ramps while respecting mobile-safe caps', function () {
   assert.ok(late.speedScale <= 1.72)
 })
 
+test('assault profiles rotate with a short recovery window', function () {
+  var opening = math.assaultAt(0)
+  var recovery = math.assaultAt(15.5)
+  var flank = math.assaultAt(18)
+  var repeated = math.assaultAt(72)
+
+  assert.deepEqual([opening.wave, opening.label, opening.active], [1, 'SWARM', true])
+  assert.equal(recovery.active, false)
+  assert.deepEqual([flank.wave, flank.label, flank.active], [2, 'FLANK', true])
+  assert.equal(repeated.label, 'SWARM')
+})
+
+test('directional aim selects only targets inside the forward sector', function () {
+  // Given one target inside the intended sector and a closer target behind the player.
+  var forward = { x: Math.cos(0.28) * 180, y: Math.sin(0.28) * 180, radius: 12 }
+  var behind = { x: -30, y: 0, radius: 12 }
+
+  // When a portrait volley resolves its launch angle.
+  var assisted = math.directionalTargetAngle({ x: 0, y: 0 }, 0, [behind, forward], Math.PI * 26 / 180, 520)
+  var emptySector = math.directionalTargetAngle({ x: 0, y: 0 }, 0, [behind], Math.PI * 26 / 180, 520)
+
+  // Then the forward target is selected, while an empty sector preserves manual heading.
+  assert.ok(Math.abs(assisted - 0.28) < 0.001)
+  assert.equal(emptySector, 0)
+})
+
 test('weapon upgrades and threshold rewards are deterministic', function () {
   assert.equal(math.weaponTierForScore(9999), 1)
   assert.equal(math.weaponTierForScore(10000), 2)

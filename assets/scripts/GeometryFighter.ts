@@ -21,6 +21,7 @@ import {
   view
 } from 'cc'
 import {
+  AIM_ASSIST_HALF_ANGLE,
   GeometryWorld,
   clamp,
   length,
@@ -28,17 +29,24 @@ import {
   weaponTier
 } from './simulation'
 import type { Ally, Bullet, ControlState, Enemy, Supply, Vector, WorldEvent } from './simulation'
+import {
+  FIGHTER_GLOW_ALPHA,
+  FIGHTER_GLOW_COLOR,
+  FIGHTER_HULL_COLOR,
+  FIGHTER_INNER_GLOW_STROKE,
+  FIGHTER_INNER_PATH,
+  FIGHTER_INNER_STROKE,
+  FIGHTER_OUTER_GLOW_STROKE,
+  FIGHTER_OUTER_PATH,
+  FIGHTER_OUTER_STROKE
+} from './fighter-shape'
+import type { FighterPoint } from './fighter-shape'
+import { TouchControls, controlBounds } from './touch-controls'
+import type { StickState } from './touch-controls'
 
 const { ccclass } = _decorator
 const TUTORIAL_HOLD = 3.5
 const TUTORIAL_DURATION = 4.5
-
-interface StickState {
-  id: number
-  active: boolean
-  base: Vector
-  knob: Vector
-}
 
 interface Particle extends Vector {
   vx: number
@@ -145,11 +153,14 @@ export class GeometryFighter extends Component {
   private readonly controls: ControlState = {
     move: { x: 0, y: 0 },
     aim: { x: 0, y: 0 },
+    engaged: false,
     start: false,
     pause: false
   }
 
-  private readonly leftStick: StickState = this.makeStick()
+  private readonly touchControls = new TouchControls()
+  private readonly leftStick = this.touchControls.left
+  private readonly rightStick = this.touchControls.right
   private readonly keys = new Set<KeyCode>()
   private readonly particles: Particle[] = []
   private readonly particlePool: Particle[] = []
@@ -166,6 +177,7 @@ export class GeometryFighter extends Component {
   private controlsGraphics!: Graphics
   private scoreLabel!: Label
   private statusLabel!: Label
+  private assaultLabel!: Label
   private titleLabel!: Label
   private subtitleLabel!: Label
   private promptLabel!: Label
@@ -216,10 +228,6 @@ export class GeometryFighter extends Component {
     }
   }
 
-  private makeStick(): StickState {
-    return { id: -1, active: false, base: { x: 0, y: 0 }, knob: { x: 0, y: 0 } }
-  }
-
   private ensureSceneCamera(): void {
     if (!this.node.getComponent(Canvas)) this.node.addComponent(Canvas)
     const transform = this.node.getComponent(UITransform) || this.node.addComponent(UITransform)
@@ -236,7 +244,7 @@ export class GeometryFighter extends Component {
     camera.projection = Camera.ProjectionType.ORTHO
     camera.orthoHeight = 640
     camera.visibility = Layers.Enum.UI_2D
-    camera.clearColor = new Color(1, 3, 13, 255)
+    camera.clearColor = new Color(0, 0, 6, 255)
   }
 
   private createRenderLayers(): void {
@@ -263,14 +271,15 @@ export class GeometryFighter extends Component {
 
   private createInterface(): void {
     this.scoreLabel = this.createLabel('Score', 23, '#bcff49')
-    this.scoreLabel.horizontalAlign = Label.HorizontalAlign.LEFT
+    this.scoreLabel.horizontalAlign = Label.HorizontalAlign.CENTER
     this.statusLabel = this.createLabel('Status', 18, '#fff36a')
-    this.statusLabel.horizontalAlign = Label.HorizontalAlign.RIGHT
+    this.statusLabel.horizontalAlign = Label.HorizontalAlign.CENTER
+    this.assaultLabel = this.createLabel('Assault', 15, '#6ffcff')
     this.titleLabel = this.createLabel('Title', 74, '#eafbff')
     this.titleLabel.string = 'GEOMETRY\nFIGHTER'
     this.titleLabel.lineHeight = 72
     this.subtitleLabel = this.createLabel('Subtitle', 22, '#70ecff')
-    this.subtitleLabel.string = '竖屏单手 · 移动即射击 · 保持倍率'
+    this.subtitleLabel.string = '竖屏单手 · 方向扇区射击 · 保持倍率'
     this.promptLabel = this.createLabel('Prompt', 20, '#d6ff4f')
     this.messageLabel = this.createLabel('Message', 32, '#ffffff')
     this.messageLabel.node.active = false
@@ -296,7 +305,7 @@ export class GeometryFighter extends Component {
 
   private populateStars(): void {
     let value = 0x1836ef91
-    for (let index = 0; index < 95; index += 1) {
+    for (let index = 0; index < 48; index += 1) {
       value = (value * 1664525 + 1013904223) >>> 0
       const rx = value / 0x100000000
       value = (value * 1664525 + 1013904223) >>> 0
@@ -317,6 +326,8 @@ export class GeometryFighter extends Component {
   private resizeWorld(): void {
     const size = view.getVisibleSize()
     this.world.resize(size.width, size.height)
+    this.touchControls.resize(size.width, size.height, 1 / Math.max(0.01, view.getScaleX()))
+    this.syncSticks()
     const transform = this.node.getComponent(UITransform)
     transform?.setContentSize(size.width, size.height)
     for (const child of this.node.children) {
@@ -336,58 +347,26 @@ export class GeometryFighter extends Component {
     this.synth.unlock()
     this.controls.start = true
     const point = this.touchPosition(event)
-    const id = event.getID() ?? -1
-    if (point.y < 0 && !this.leftStick.active) this.activateStick(this.leftStick, id, point)
+    this.touchControls.start({ id: event.getID() ?? -1, ...point })
     this.syncSticks()
   }
 
   private onTouchMove(event: EventTouch): void {
     const point = this.touchPosition(event)
-    const id = event.getID() ?? -1
-    this.moveStick(this.leftStick, id, point)
+    this.touchControls.move({ id: event.getID() ?? -1, ...point })
     this.syncSticks()
   }
 
   private onTouchEnd(event: EventTouch): void {
-    const id = event.getID() ?? -1
-    if (this.leftStick.id === id) this.releaseStick(this.leftStick)
+    this.touchControls.end(event.getID() ?? -1)
     this.syncSticks()
   }
 
-  private activateStick(stick: StickState, id: number, point: Vector): void {
-    stick.id = id
-    stick.active = true
-    stick.base = { ...point }
-    stick.knob = { ...point }
-  }
-
-  private moveStick(stick: StickState, id: number, point: Vector): void {
-    if (!stick.active || stick.id !== id) return
-    const dx = point.x - stick.base.x
-    const dy = point.y - stick.base.y
-    const direction = normalized(dx, dy)
-    const reach = Math.min(58, length(dx, dy))
-    stick.knob.x = stick.base.x + direction.x * reach
-    stick.knob.y = stick.base.y + direction.y * reach
-  }
-
-  private releaseStick(stick: StickState): void {
-    stick.id = -1
-    stick.active = false
-    stick.knob = { ...stick.base }
-  }
-
   private syncSticks(): void {
-    this.controls.move = this.stickVector(this.leftStick)
-  }
-
-  private stickVector(stick: StickState): Vector {
-    if (!stick.active) return { x: 0, y: 0 }
-    const dx = stick.knob.x - stick.base.x
-    const dy = stick.knob.y - stick.base.y
-    const direction = normalized(dx, dy)
-    const strength = clamp((length(dx, dy) - 8) / 42, 0, 1)
-    return { x: direction.x * strength, y: direction.y * strength }
+    const vectors = this.touchControls.vectors()
+    this.controls.move = vectors.move
+    this.controls.aim = vectors.aim
+    this.controls.engaged = vectors.engaged
   }
 
   private onKeyDown(event: EventKeyboard): void {
@@ -407,8 +386,9 @@ export class GeometryFighter extends Component {
     const aimY = Number(this.keys.has(KeyCode.KEY_I)) - Number(this.keys.has(KeyCode.KEY_K))
     if (moveX || moveY) this.controls.move = normalized(moveX, moveY)
     else if (!this.leftStick.active) this.controls.move = { x: 0, y: 0 }
+    this.controls.engaged = this.leftStick.active || Boolean(moveX || moveY)
     if (aimX || aimY) this.controls.aim = normalized(aimX, aimY)
-    else this.controls.aim = { x: 0, y: 0 }
+    else if (!this.rightStick.active) this.controls.aim = { x: 0, y: 0 }
   }
 
   private processWorldEvents(events: WorldEvent[]): void {
@@ -541,23 +521,30 @@ export class GeometryFighter extends Component {
     sharp.clear()
     const width = this.world.width
     const height = this.world.height
-    glow.fillColor = new Color(0, 2, 13, 255)
+    glow.fillColor = new Color(0, 0, 6, 255)
     glow.rect(-width * 0.5, -height * 0.5, width, height)
     glow.fill()
     for (const star of this.stars) {
-      const alpha = 32 + Math.floor((Math.sin(this.time * 1.8 + star.phase) * 0.5 + 0.5) * 70)
-      sharp.fillColor = new Color(63, 137, 190, alpha)
+      const alpha = 10 + Math.floor((Math.sin(this.time * 1.8 + star.phase) * 0.5 + 0.5) * 28)
+      sharp.fillColor = new Color(95, 157, 190, alpha)
       sharp.circle(star.x * width, star.y * height, star.size)
       sharp.fill()
     }
-    const spacing = 42
-    this.drawGridLines(glow, spacing, 7, new Color(0, 91, 156, 23))
-    this.drawGridLines(sharp, spacing, 1.15, new Color(21, 149, 221, 72))
-    glow.lineWidth = 14
-    glow.strokeColor = new Color(69, 191, 255, 44)
+    const spacing = 58
+    this.drawGridLines(glow, spacing, 5, new Color(98, 16, 91, 20))
+    this.drawGridLines(sharp, spacing, 0.9, new Color(126, 31, 118, 58))
+    sharp.lineWidth = 1.1
+    sharp.strokeColor = new Color(255, 71, 225, 92)
+    sharp.moveTo(-width * 0.5 + 8, 0)
+    sharp.lineTo(width * 0.5 - 8, 0)
+    sharp.moveTo(0, -height * 0.5 + 8)
+    sharp.lineTo(0, height * 0.5 - 8)
+    sharp.stroke()
+    glow.lineWidth = 10
+    glow.strokeColor = new Color(69, 191, 255, 36)
     glow.rect(-width * 0.5 + 8, -height * 0.5 + 8, width - 16, height - 16)
     glow.stroke()
-    sharp.lineWidth = 2.2
+    sharp.lineWidth = 1.8
     sharp.strokeColor = new Color(218, 250, 255, 230)
     sharp.rect(-width * 0.5 + 8, -height * 0.5 + 8, width - 16, height - 16)
     sharp.stroke()
@@ -692,6 +679,10 @@ export class GeometryFighter extends Component {
     for (const enemy of this.world.enemies) {
       if (enemy.dead) continue
       const spawnAlpha = enemy.spawnTimer > 0 ? 1 - enemy.spawnTimer / 0.45 : 1
+      if (enemy.spawnTimer > 0) {
+        this.drawSpawnTelegraph(this.entitiesGlow, enemy, true)
+        this.drawSpawnTelegraph(this.entities, enemy, false)
+      }
       this.drawEnemy(this.entitiesGlow, enemy, true, spawnAlpha)
       this.drawEnemy(this.entities, enemy, false, spawnAlpha)
     }
@@ -714,35 +705,48 @@ export class GeometryFighter extends Component {
     }
   }
 
-  private drawPlayer(graphics: Graphics, glow: boolean): void {
-    const player = this.world.player
-    const color = glow ? new Color(92, 235, 255, 66) : new Color(232, 255, 255, 255)
-    graphics.lineWidth = glow ? 13 : 2.6
-    graphics.strokeColor = color
-    const forward = { x: Math.cos(player.angle), y: Math.sin(player.angle) }
-    const side = { x: -forward.y, y: forward.x }
-    graphics.moveTo(player.x + forward.x * 19 - side.x * 10, player.y + forward.y * 19 - side.y * 10)
-    graphics.lineTo(player.x + forward.x * 7 - side.x * 5, player.y + forward.y * 7 - side.y * 5)
-    graphics.lineTo(player.x + forward.x * 1 - side.x * 12, player.y + forward.y * 1 - side.y * 12)
-    graphics.lineTo(player.x - forward.x * 12 - side.x * 10, player.y - forward.y * 12 - side.y * 10)
-    graphics.lineTo(player.x - forward.x * 5, player.y - forward.y * 5)
-    graphics.lineTo(player.x - forward.x * 12 + side.x * 10, player.y - forward.y * 12 + side.y * 10)
-    graphics.lineTo(player.x + forward.x * 1 + side.x * 12, player.y + forward.y * 1 + side.y * 12)
-    graphics.lineTo(player.x + forward.x * 7 + side.x * 5, player.y + forward.y * 7 + side.y * 5)
-    graphics.lineTo(player.x + forward.x * 19 + side.x * 10, player.y + forward.y * 19 + side.y * 10)
-    graphics.stroke()
-    graphics.lineWidth = glow ? 8 : 1.4
-    graphics.moveTo(player.x + forward.x * 7 - side.x * 5, player.y + forward.y * 7 - side.y * 5)
-    graphics.lineTo(player.x - forward.x * 5, player.y - forward.y * 5)
-    graphics.lineTo(player.x + forward.x * 7 + side.x * 5, player.y + forward.y * 7 + side.y * 5)
-    graphics.stroke()
-    if (!glow) {
-      graphics.strokeColor = new Color(93, 255, 186, 255)
-      graphics.moveTo(player.x - forward.x * 8 + side.x * 5, player.y - forward.y * 8 + side.y * 5)
-      graphics.lineTo(player.x - forward.x * 18, player.y - forward.y * 18)
-      graphics.lineTo(player.x - forward.x * 8 - side.x * 5, player.y - forward.y * 8 - side.y * 5)
+  private drawSpawnTelegraph(graphics: Graphics, enemy: Enemy, glow: boolean): void {
+    const progress = clamp(1 - enemy.spawnTimer / 0.45, 0, 1)
+    const radius = enemy.radius * (2.4 - progress * 0.65)
+    const rotation = this.time * 2.4 + enemy.phase
+    graphics.lineWidth = glow ? 7 : 1.3
+    graphics.strokeColor = this.color(this.world.enemyColor(enemy.kind), Math.floor((glow ? 44 : 168) * (0.55 + progress * 0.45)))
+    for (let ring = 0; ring < 2; ring += 1) {
+      const start = ring * Math.PI + progress * 1.8 + rotation
+      graphics.arc(enemy.x, enemy.y, radius + ring * 6, start, start + Math.PI * 0.72, false)
       graphics.stroke()
     }
+    for (let tick = 0; tick < 4; tick += 1) {
+      const angle = rotation + tick * Math.PI * 0.5
+      graphics.moveTo(enemy.x + Math.cos(angle) * (radius + 8), enemy.y + Math.sin(angle) * (radius + 8))
+      graphics.lineTo(enemy.x + Math.cos(angle) * (radius + 15), enemy.y + Math.sin(angle) * (radius + 15))
+    }
+    graphics.stroke()
+  }
+
+  private drawPlayer(graphics: Graphics, glow: boolean): void {
+    const player = this.world.player
+    const scale = this.touchControls.unitsPerPixel
+    const forwardX = Math.cos(player.angle)
+    const forwardY = Math.sin(player.angle)
+    const sideX = -forwardY
+    const sideY = forwardX
+    graphics.strokeColor = this.color(glow ? FIGHTER_GLOW_COLOR : FIGHTER_HULL_COLOR, glow ? FIGHTER_GLOW_ALPHA : 255)
+    this.drawPlayerPath(graphics, FIGHTER_OUTER_PATH, glow ? FIGHTER_OUTER_GLOW_STROKE : FIGHTER_OUTER_STROKE, scale, forwardX, forwardY, sideX, sideY)
+    this.drawPlayerPath(graphics, FIGHTER_INNER_PATH, glow ? FIGHTER_INNER_GLOW_STROKE : FIGHTER_INNER_STROKE, scale, forwardX, forwardY, sideX, sideY)
+  }
+
+  private drawPlayerPath(graphics: Graphics, points: readonly FighterPoint[], stroke: number, scale: number, forwardX: number, forwardY: number, sideX: number, sideY: number): void {
+    const player = this.world.player
+    graphics.lineWidth = stroke * scale
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index]
+      const x = player.x + (forwardX * point.forward + sideX * point.side) * scale
+      const y = player.y + (forwardY * point.forward + sideY * point.side) * scale
+      if (index === 0) graphics.moveTo(x, y)
+      else graphics.lineTo(x, y)
+    }
+    graphics.stroke()
   }
 
   private drawAlly(graphics: Graphics, ally: Ally, glow: boolean): void {
@@ -815,8 +819,8 @@ export class GeometryFighter extends Component {
   private drawEnemy(graphics: Graphics, enemy: Enemy, glow: boolean, alpha: number): void {
     const colorHex = this.world.enemyColor(enemy.kind)
     graphics.strokeColor = this.color(colorHex, Math.floor(alpha * (glow ? 70 : 245)))
-    graphics.fillColor = this.color(colorHex, Math.floor(alpha * (glow ? 22 : 35)))
-    graphics.lineWidth = glow ? 12 : 2.4
+    graphics.fillColor = this.color(colorHex, 0)
+    graphics.lineWidth = glow ? 9 : 1.8
     switch (enemy.kind) {
       case 'wanderer':
         for (let arm = 0; arm < 4; arm += 1) {
@@ -959,21 +963,47 @@ export class GeometryFighter extends Component {
     const graphics = this.controlsGraphics
     graphics.clear()
     if (this.world.state !== 'playing') return
-    const defaultY = -this.world.height * 0.5 + 92
-    this.drawStick(graphics, this.leftStick, 0, defaultY, '#45eaff')
+    const scale = this.touchControls.unitsPerPixel
+    const canvasSize = view.getCanvasSize()
+    const bounds = controlBounds(this.world.width, this.world.height, canvasSize.width, canvasSize.height, scale)
+    if (this.touchControls.singleHanded) {
+      const defaultY = -bounds.halfHeight + 92 * scale
+      const heading = this.world.hasFireHeading ? this.world.fireHeading : null
+      this.drawStick(graphics, this.leftStick, 0, defaultY, '#45eaff', heading, scale)
+      return
+    }
+    const defaultY = -bounds.halfHeight + 74 * scale
+    this.drawStick(graphics, this.leftStick, -bounds.halfWidth + 82 * scale, defaultY, '#45eaff', null, scale)
+    this.drawStick(graphics, this.rightStick, bounds.halfWidth - 82 * scale, defaultY, '#ff4fd8', null, scale)
   }
 
-  private drawStick(graphics: Graphics, stick: StickState, defaultX: number, defaultY: number, hex: string): void {
+  private drawStick(graphics: Graphics, stick: StickState, defaultX: number, defaultY: number, hex: string, heading: number | null, scale: number): void {
     const base = stick.active ? stick.base : { x: defaultX, y: defaultY }
     const knob = stick.active ? stick.knob : base
-    graphics.lineWidth = 2
+    if (stick.active && heading !== null) {
+      const sectorRadius = 66 * scale
+      graphics.lineWidth = 1.4 * scale
+      graphics.strokeColor = this.color(hex, 88)
+      graphics.moveTo(base.x, base.y)
+      graphics.lineTo(base.x + Math.cos(heading - AIM_ASSIST_HALF_ANGLE) * sectorRadius, base.y + Math.sin(heading - AIM_ASSIST_HALF_ANGLE) * sectorRadius)
+      graphics.moveTo(base.x, base.y)
+      graphics.lineTo(base.x + Math.cos(heading + AIM_ASSIST_HALF_ANGLE) * sectorRadius, base.y + Math.sin(heading + AIM_ASSIST_HALF_ANGLE) * sectorRadius)
+      graphics.stroke()
+      graphics.arc(base.x, base.y, sectorRadius, heading - AIM_ASSIST_HALF_ANGLE, heading + AIM_ASSIST_HALF_ANGLE, false)
+      graphics.stroke()
+      graphics.strokeColor = this.color(hex, 142)
+      graphics.moveTo(base.x, base.y)
+      graphics.lineTo(base.x + Math.cos(heading) * 58 * scale, base.y + Math.sin(heading) * 58 * scale)
+      graphics.stroke()
+    }
+    graphics.lineWidth = 1.4 * scale
     graphics.strokeColor = this.color(hex, stick.active ? 155 : 58)
     graphics.fillColor = this.color(hex, stick.active ? 28 : 12)
-    graphics.circle(base.x, base.y, 46)
+    graphics.circle(base.x, base.y, 48 * scale)
     graphics.fill()
     graphics.stroke()
     graphics.fillColor = this.color(hex, stick.active ? 82 : 25)
-    graphics.circle(knob.x, knob.y, 16)
+    graphics.circle(knob.x, knob.y, 17 * scale)
     graphics.fill()
     graphics.stroke()
   }
@@ -982,61 +1012,88 @@ export class GeometryFighter extends Component {
     const width = this.world.width
     const height = this.world.height
     const hudWidth = width - 48
-    this.scoreLabel.node.getComponent(UITransform)?.setContentSize(hudWidth, 92)
-    this.statusLabel.node.getComponent(UITransform)?.setContentSize(hudWidth, 92)
-    this.subtitleLabel.node.getComponent(UITransform)?.setContentSize(hudWidth, 100)
-    this.promptLabel.node.getComponent(UITransform)?.setContentSize(hudWidth, 100)
+    const controlScale = this.touchControls.unitsPerPixel
+    const telemetryWidth = Math.min(width * 0.36, 104 * controlScale)
+    this.scoreLabel.fontSize = 14 * controlScale
+    this.scoreLabel.lineHeight = 18 * controlScale
+    this.statusLabel.fontSize = 14 * controlScale
+    this.statusLabel.lineHeight = 18 * controlScale
+    this.assaultLabel.fontSize = 10 * controlScale
+    this.assaultLabel.lineHeight = 13 * controlScale
+    this.setLabelSize(this.scoreLabel, telemetryWidth, 42 * controlScale)
+    this.setLabelSize(this.statusLabel, telemetryWidth, 42 * controlScale)
+    this.setLabelSize(this.assaultLabel, hudWidth, 30 * controlScale)
+    this.setLabelSize(this.subtitleLabel, hudWidth, 100)
+    this.setLabelSize(this.promptLabel, hudWidth, 100)
     const safeArea = sys.getSafeAreaRect()
     const safeTop = clamp(height - safeArea.y - safeArea.height, 0, height * 0.25)
     const hudTop = Math.max(58, safeTop + 54)
-    this.scoreLabel.node.setPosition(0, height * 0.5 - hudTop)
-    this.scoreLabel.string = `SCORE  ${this.scoreText(this.world.score)}\nHIGH   ${this.scoreText(this.world.highScore)}`
-    this.statusLabel.node.setPosition(0, height * 0.5 - hudTop)
+    this.scoreLabel.node.setPosition(-width * 0.31, height * 0.5 - hudTop)
+    this.setLabelText(this.scoreLabel, `SCORE\n${this.scoreText(this.world.score)}`)
+    this.statusLabel.node.setPosition(width * 0.31, height * 0.5 - hudTop)
+    this.setLabelText(this.statusLabel, `HIGH\n${this.scoreText(this.world.highScore)}`)
     const specialStatus: string[] = []
     if (this.world.missileTimer > 0) specialStatus.push(`MISSILE ${this.world.missileTimer.toFixed(1)}s`)
     if (this.world.overloadTimer > 0) specialStatus.push(`OVERDRIVE ${this.world.overloadTimer.toFixed(1)}s`)
     if (this.world.allies.length > 0) specialStatus.push(`ALLY ×${this.world.allies.length}`)
     specialStatus.push(this.world.supplies.some((supply) => !supply.dead) ? 'SUPER ACTIVE' : `SUPER ${Math.ceil(this.world.supplyClock)}s`)
-    const specialLine = specialStatus.length > 0 ? `\n${specialStatus.join('  ')}` : ''
-    this.statusLabel.string = `VECTOR  ×${this.world.multiplier}   ◇ ${this.world.lives}   W${weaponTier(this.world.score)}${specialLine}`
+    this.assaultLabel.node.setPosition(0, height * 0.5 - hudTop - 62)
+    this.setLabelText(this.assaultLabel, `A${this.world.wave < 10 ? '0' : ''}${this.world.wave}  ${this.world.assault.label}  ${Math.ceil(this.world.assault.timeLeft)}s   ×${this.world.multiplier}  ◇${this.world.lives}  W${weaponTier(this.world.score)}\n${specialStatus.join('  ')}`)
     this.titleLabel.node.setPosition(0, height * 0.12)
     this.subtitleLabel.node.setPosition(0, height * 0.12 - 132)
     this.promptLabel.node.setPosition(0, -height * 0.18)
-    this.messageLabel.node.setPosition(0, height * 0.5 - Math.max(142, safeTop + 120))
+    this.messageLabel.node.setPosition(0, height * 0.5 - Math.max(190, safeTop + 168))
     const showTitle = this.world.state === 'title'
     const showGameOver = this.world.state === 'gameover'
+    const showTelemetry = this.world.state === 'playing' || this.world.state === 'paused'
+    this.scoreLabel.node.active = showTelemetry
+    this.statusLabel.node.active = showTelemetry
+    this.assaultLabel.node.active = showTelemetry
     this.titleLabel.node.active = showTitle || showGameOver
     this.subtitleLabel.node.active = showTitle || showGameOver
-    this.promptLabel.node.active = showTitle || showGameOver || this.world.state === 'paused' || (this.world.state === 'playing' && this.world.elapsed < TUTORIAL_DURATION)
+    this.promptLabel.node.active = showTitle || showGameOver || this.world.state === 'paused' || (this.world.state === 'playing' && this.touchControls.singleHanded && this.world.elapsed < TUTORIAL_DURATION)
     if (showTitle) {
-      this.promptLabel.fontSize = 20
-      this.promptLabel.lineHeight = 24
+      this.subtitleLabel.fontSize = 13 * controlScale
+      this.subtitleLabel.lineHeight = 17 * controlScale
+      this.promptLabel.fontSize = 12 * controlScale
+      this.promptLabel.lineHeight = 16 * controlScale
       this.promptLabel.color = this.color('#d6ff4f')
-      this.titleLabel.string = 'GEOMETRY\nFIGHTER'
+      this.setLabelText(this.titleLabel, 'GEOMETRY\nFIGHTER')
       this.titleLabel.color = new Color(231, 253, 255, 255)
-      this.subtitleLabel.string = '竖屏单手 · 移动即射击 · 保持倍率'
-      this.promptLabel.string = '下半屏单指拖动 · 移动方向即射击方向 · 击破补给释放超级武器 · 轻触开始'
+      this.setLabelText(this.subtitleLabel, '竖屏单手 · 方向扇区射击 · 保持倍率')
+      this.setLabelText(this.promptLabel, '单指拖动 · 回中射击 · 扇区命中 · 轻触开始')
     } else if (showGameOver) {
-      this.promptLabel.fontSize = 20
-      this.promptLabel.lineHeight = 24
+      this.promptLabel.fontSize = 12 * controlScale
+      this.promptLabel.lineHeight = 16 * controlScale
       this.promptLabel.color = this.color('#d6ff4f')
-      this.titleLabel.string = 'GRID\nCOLLAPSED'
+      this.setLabelText(this.titleLabel, 'GRID\nCOLLAPSED')
       this.titleLabel.color = new Color(255, 92, 112, 255)
-      this.subtitleLabel.string = `FINAL SCORE  ${this.scoreText(this.world.score)}`
-      this.promptLabel.string = '触摸重新接入网格  /  TOUCH TO RESTART'
+      this.setLabelText(this.subtitleLabel, `FINAL SCORE  ${this.scoreText(this.world.score)}`)
+      this.setLabelText(this.promptLabel, '触摸重新接入网格  /  TOUCH TO RESTART')
     } else if (this.world.state === 'paused') {
-      this.promptLabel.fontSize = 20
-      this.promptLabel.lineHeight = 24
+      this.promptLabel.fontSize = 14 * controlScale
+      this.promptLabel.lineHeight = 18 * controlScale
       this.promptLabel.color = this.color('#d6ff4f')
-      this.promptLabel.string = 'PAUSED  /  触摸 P 继续'
+      this.setLabelText(this.promptLabel, 'PAUSED  /  触摸 P 继续')
     } else {
-      this.promptLabel.node.setPosition(0, -height * 0.5 + 170)
-      this.promptLabel.fontSize = 14
-      this.promptLabel.lineHeight = 18
+      this.promptLabel.node.setPosition(0, -height * 0.5 + 170 * controlScale)
+      this.promptLabel.fontSize = 13 * controlScale
+      this.promptLabel.lineHeight = 17 * controlScale
       const tutorialAlpha = this.world.elapsed <= TUTORIAL_HOLD ? 210 : Math.floor(210 * (TUTORIAL_DURATION - this.world.elapsed) / (TUTORIAL_DURATION - TUTORIAL_HOLD))
       this.promptLabel.color = this.color('#45eaff', tutorialAlpha)
-      this.promptLabel.string = '单指移动并射击 · 击破补给释放超级武器'
+      this.setLabelText(this.promptLabel, '单指移动 · 回中射击 · 扇区命中')
     }
+  }
+
+  private setLabelText(label: Label, text: string): void {
+    if (label.string !== text) label.string = text
+  }
+
+  private setLabelSize(label: Label, width: number, height: number): void {
+    const transform = label.node.getComponent(UITransform)
+    if (!transform) return
+    const size = transform.contentSize
+    if (size.width !== width || size.height !== height) transform.setContentSize(width, height)
   }
 
   private color(hex: string, alpha = 255): Color {

@@ -39,8 +39,12 @@ class GeometryGame {
     this.supplyTimer = 12
     this.missileTimer = 0
     this.overloadTimer = 0
+    this.fireHeading = 0
+    this.hasFireHeading = false
+    this.directionalTargets = []
     this.random = Math.random
     this.lastPhase = -1
+    this.assault = math.assaultAt(0)
     this.message = ''
     this.messageTimer = 0
     this.gameOverTimer = 0
@@ -125,8 +129,12 @@ class GeometryGame {
     this.supplyTimer = 12 + this.random() * 6
     this.missileTimer = 0
     this.overloadTimer = 0
+    this.fireHeading = 0
+    this.hasFireHeading = false
+    this.directionalTargets.length = 0
     this.lastPhase = -1
-    this.message = 'GRID LEVEL 1'
+    this.assault = math.assaultAt(0)
+    this.message = 'ASSAULT 01 // SWARM'
     this.messageTimer = 1.8
     this.gameOverTimer = 0
     this.flash = 0.28
@@ -259,11 +267,31 @@ class GeometryGame {
       aimX = this.input.move.x
       aimY = this.input.move.y
       aimStrength = math.length(aimX, aimY)
-    }
-    if (aimStrength > 0.22) {
+      if (aimStrength > config.WORLD.aimInputThreshold) {
+        var desiredHeading = Math.atan2(aimY, aimX)
+        if (this.hasFireHeading) {
+          this.fireHeading += math.angleDelta(this.fireHeading, desiredHeading) * math.clamp(dt * config.WORLD.aimHeadingResponse, 0, 1)
+        } else {
+          this.fireHeading = desiredHeading
+          this.hasFireHeading = true
+        }
+      }
+      if (this.hasFireHeading && (this.input.left.active || aimStrength > config.WORLD.aimInputThreshold)) {
+        player.angle += math.angleDelta(player.angle, this.fireHeading) * math.clamp(dt * config.WORLD.aimHeadingResponse, 0, 1)
+        if (player.fireTimer <= 0) {
+          var directionalAngle = this.directionalFireAngle(this.fireHeading)
+          player.angle += math.angleDelta(player.angle, directionalAngle) * math.clamp(dt * config.WORLD.aimHeadingResponse, 0, 1)
+          this.fireWeapon(directionalAngle)
+          player.fireTimer = this.overloadTimer > 0 ? config.WORLD.overloadFireRate : config.WORLD.fireRate
+        }
+      } else if (velocity.length > 20) {
+        player.angle += math.angleDelta(player.angle, Math.atan2(player.vy, player.vx)) * math.clamp(dt * 4, 0, 1)
+      }
+      if (!this.input.left.active && aimStrength <= config.WORLD.aimInputThreshold) this.hasFireHeading = false
+    } else if (aimStrength > 0.22) {
       player.angle = Math.atan2(aimY, aimX)
       if (player.fireTimer <= 0) {
-        this.fireWeapon()
+        this.fireWeapon(player.angle)
         player.fireTimer = this.overloadTimer > 0 ? config.WORLD.overloadFireRate : config.WORLD.fireRate
       }
     } else if (velocity.length > 20) {
@@ -302,9 +330,28 @@ class GeometryGame {
     return nearest
   }
 
-  fireWeapon() {
+  directionalFireAngle(heading) {
+    this.directionalTargets.length = 0
+    for (var i = 0; i < this.enemies.length; i += 1) {
+      var enemy = this.enemies[i]
+      if (!enemy.dead && enemy.spawn <= 0) this.directionalTargets.push(enemy)
+    }
+    for (var s = 0; s < this.supplies.length; s += 1) {
+      var supply = this.supplies[s]
+      if (!supply.dead && supply.spawn <= 0) this.directionalTargets.push(supply)
+    }
+    return math.directionalTargetAngle(
+      this.player,
+      heading,
+      this.directionalTargets,
+      config.WORLD.aimAssistHalfAngle,
+      Math.max(this.width, this.height) * config.WORLD.aimAssistRangeRatio
+    )
+  }
+
+  fireWeapon(angleOverride) {
     var tier = math.weaponTierForScore(this.score)
-    var angle = this.player.angle
+    var angle = angleOverride === undefined ? this.player.angle : angleOverride
     if (this.overloadTimer > 0) {
       for (var spread = -4; spread <= 4; spread += 1) this.spawnBullet(angle + spread * 0.07, spread * 1.4)
     } else if (tier === 1) {
@@ -378,23 +425,30 @@ class GeometryGame {
       this.supplyTimer = config.WORLD.supplyIntervalMin + this.random() * (config.WORLD.supplyIntervalMax - config.WORLD.supplyIntervalMin)
     }
     var difficulty = math.difficultyAt(this.elapsed)
-    if (difficulty.phase !== this.lastPhase) {
-      this.lastPhase = difficulty.phase
-      if (difficulty.phase > 0) {
-        this.message = 'GRID LEVEL ' + (difficulty.phase + 1)
+    this.assault = math.assaultAt(this.elapsed)
+    if (this.assault.phase !== this.lastPhase) {
+      this.lastPhase = this.assault.phase
+      if (this.assault.phase > 0) {
+        this.message = 'ASSAULT ' + this.padWave(this.assault.wave) + ' // ' + this.assault.label
         this.messageTimer = 1.5
-        this.grid.pulse(this.width * 0.5, this.height * 0.5, 12 + difficulty.phase, config.COLORS.violet)
+        this.spawnTimer = Math.min(this.spawnTimer, 0.18)
+        this.grid.pulse(this.width * 0.5, this.height * 0.5, 12 + this.assault.phase, config.COLORS.gridHot)
       }
     }
     this.spawnTimer -= dt
-    if (this.spawnTimer > 0 || this.enemies.length >= difficulty.cap) return
+    if (!this.assault.active || this.spawnTimer > 0 || this.enemies.length >= difficulty.cap) return
     this.spawnTimer = difficulty.spawnInterval * math.randomRange(0.76, 1.18)
-    var count = Math.min(difficulty.batch, difficulty.cap - this.enemies.length)
-    var type = this.chooseEnemyType(this.elapsed)
+    var count = Math.min(difficulty.batch + this.assault.batchBonus, difficulty.cap - this.enemies.length)
+    var edge = Math.floor(this.random() * 4)
+    var type = this.chooseEnemyType(this.elapsed, this.assault.key)
     for (var i = 0; i < count; i += 1) {
-      this.spawnEnemy(type)
-      if (Math.random() < 0.28) type = this.chooseEnemyType(this.elapsed)
+      this.spawnAssaultEnemy(type, edge, i, count)
+      if (this.random() < 0.28) type = this.chooseEnemyType(this.elapsed, this.assault.key)
     }
+  }
+
+  padWave(wave) {
+    return wave < 10 ? '0' + wave : String(wave)
   }
 
   spawnSupply(forcedX, forcedY, forcedEffect) {
@@ -506,18 +560,30 @@ class GeometryGame {
     }
   }
 
-  chooseEnemyType(seconds) {
+  chooseEnemyType(seconds, assaultKey) {
     var choices = ['wanderer', 'wanderer', 'grunt', 'grunt']
-    if (seconds > 12) choices.push('dart', 'dart')
-    if (seconds > 16) choices.push('weaver', 'weaver')
+    if (assaultKey === 'swarm') choices.push('wanderer', 'grunt', 'grunt', 'weaver')
+    if (seconds > 12) choices.push('dart')
+    if (seconds > 16) choices.push('weaver')
+    if (seconds > 17 && assaultKey === 'flank') choices.push('dart', 'dart', 'weaver', 'orbiter')
     if (seconds > 26) choices.push('orbiter')
     if (seconds > 32) choices.push('spinner')
+    if (seconds > 35 && assaultKey === 'spiral') choices.push('spinner', 'spinner', 'orbiter', 'snake')
     if (seconds > 44) choices.push('splitter')
     if (seconds > 48) choices.push('snake')
+    if (seconds > 53 && assaultKey === 'siege') choices.push('splitter', 'snake', 'repulsar')
     if (seconds > 62) choices.push('crusher')
     if (seconds > 68) choices.push('repulsar')
     if (seconds > 82 && this.blackholes.length < 3) choices.push('blackhole')
     return math.pick(choices)
+  }
+
+  spawnAssaultEnemy(type, edge, index, count) {
+    var definition = config.ENEMY[type]
+    var margin = config.WORLD.margin + definition.radius + 4
+    var lane = (index + 1) / (count + 1)
+    var point = this.spawnPoint(margin, edge, lane)
+    return this.spawnEnemy(type, point.x, point.y)
   }
 
   spawnEnemy(type, forcedX, forcedY) {
@@ -527,7 +593,7 @@ class GeometryGame {
     var point = this.spawnPoint(margin)
     var x = forcedX === undefined ? point.x : forcedX
     var y = forcedY === undefined ? point.y : forcedY
-    var angle = Math.random() * Math.PI * 2
+    var angle = this.random() * Math.PI * 2
     var enemy = {
       type: type,
       x: x,
@@ -542,8 +608,8 @@ class GeometryGame {
       score: definition.score,
       color: definition.color,
       spawn: 0.55,
-      age: Math.random() * 4,
-      phase: Math.random() * Math.PI * 2,
+      age: this.random() * 4,
+      phase: this.random() * Math.PI * 2,
       mass: type === 'blackhole' ? 1 : 0,
       missileChargeUsed: false,
       fragmentsOnDeath: type === 'splitter',
@@ -566,22 +632,23 @@ class GeometryGame {
     return enemy
   }
 
-  spawnPoint(margin) {
+  spawnPoint(margin, preferredEdge, lane) {
     var point = { x: margin, y: margin }
     for (var attempt = 0; attempt < 8; attempt += 1) {
-      var edge = math.randomInt(0, 3)
+      var edge = preferredEdge === undefined ? Math.floor(this.random() * 4) : preferredEdge
+      var lanePosition = lane === undefined ? this.random() : math.clamp(lane + (this.random() - 0.5) * 0.16, 0.08, 0.92)
       if (edge === 0) {
-        point.x = math.randomRange(margin, this.width - margin)
+        point.x = margin + lanePosition * (this.width - margin * 2)
         point.y = margin
       } else if (edge === 1) {
         point.x = this.width - margin
-        point.y = math.randomRange(margin, this.height - margin)
+        point.y = margin + lanePosition * (this.height - margin * 2)
       } else if (edge === 2) {
-        point.x = math.randomRange(margin, this.width - margin)
+        point.x = margin + lanePosition * (this.width - margin * 2)
         point.y = this.height - margin
       } else {
         point.x = margin
-        point.y = math.randomRange(margin, this.height - margin)
+        point.y = margin + lanePosition * (this.height - margin * 2)
       }
       if (math.length(point.x - this.player.x, point.y - this.player.y) > 145) break
     }
@@ -1073,6 +1140,7 @@ class GeometryGame {
       highScore: this.highScore,
       lives: this.lives,
       multiplier: this.multiplier,
+      assault: { wave: this.assault.wave, label: this.assault.label, timeLeft: Math.ceil(this.assault.timeLeft) },
       elapsed: Math.round(this.elapsed * 100) / 100,
       enemies: this.enemies.length,
       bullets: this.bullets.length,

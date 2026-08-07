@@ -93,7 +93,7 @@ test('new geometric enemies have distinct motion and splitters release three sha
   assert.equal(game.enemies.filter(function (enemy) { return enemy.type === 'shard' }).length, 3)
 })
 
-test('portrait fire follows the movement direction instead of tracking the nearest enemy', function () {
+test('portrait fire ignores enemies behind the selected direction', function () {
   var game = new GeometryGame(fakePlatform(), { width: 0, height: 0 }, {})
   game.resize(390, 844, 2)
   game.startRound()
@@ -107,6 +107,53 @@ test('portrait fire follows the movement direction instead of tracking the neare
   assert.equal(game.bullets.length, 1)
   assert.ok(game.bullets[0].vx > 0)
   assert.ok(Math.abs(game.player.angle) < 0.001)
+})
+
+test('portrait center hold keeps firing along the last deliberate heading', function () {
+  // Given an active one-thumb drag that established a rightward firing heading.
+  var game = new GeometryGame(fakePlatform(), { width: 0, height: 0 }, {})
+  game.resize(390, 844, 2)
+  game.startRound()
+  game.input.left.active = true
+  game.input.move.x = 1
+  game.input.move.y = 0
+  game.updatePlayer(0.11)
+  var openingShots = game.bullets.length
+
+  // When the thumb returns to the stick center without lifting.
+  game.input.move.x = 0
+  game.input.move.y = 0
+  game.player.fireTimer = 0
+  game.updatePlayer(0.01)
+
+  // Then movement input is neutral but fire continues along the remembered direction.
+  assert.equal(game.bullets.length, openingShots + 1)
+  assert.ok(game.bullets[game.bullets.length - 1].vx > 0)
+})
+
+test('portrait sector corrects only the launch angle and never tracks in flight', function () {
+  // Given a target inside the rightward directional sector.
+  var game = new GeometryGame(fakePlatform(), { width: 0, height: 0 }, {})
+  game.resize(390, 844, 2)
+  game.startRound()
+  var target = game.spawnEnemy('grunt', game.player.x + 180, game.player.y + 50)
+  target.spawn = 0
+  game.input.left.active = true
+  game.input.move.x = 1
+  game.input.move.y = 0
+
+  // When the volley launches and the target then moves elsewhere.
+  game.updatePlayer(0.11)
+  var bullet = game.bullets[0]
+  var launchVelocity = { x: bullet.vx, y: bullet.vy }
+  target.x = game.player.x - 180
+  target.y = game.player.y
+  game.updateBullets(0.1)
+
+  // Then the launch was sector-assisted but its in-flight velocity remains ballistic.
+  assert.ok(launchVelocity.y > 0)
+  assert.equal(bullet.vx, launchVelocity.x)
+  assert.equal(bullet.vy, launchVelocity.y)
 })
 
 test('hot-loop cleanup preserves entity array identities between frames', function () {
@@ -225,4 +272,26 @@ test('super supplies choose all three effects from the random range', function (
   })
 
   assert.deepEqual(effects, ['detonation', 'overload', 'allies'])
+})
+
+test('assault waves pause spawning for recovery and return as a grouped edge breach', function () {
+  var game = new GeometryGame(fakePlatform(), { width: 0, height: 0 }, {})
+  game.resize(390, 844, 2)
+  game.startRound()
+  game.supplyTimer = 99
+  game.spawnTimer = 0
+  game.elapsed = 15.5
+
+  game.updateSpawner(0.2)
+  assert.equal(game.enemies.length, 0)
+  assert.equal(game.assault.active, false)
+
+  game.elapsed = 18
+  game.random = function () { return 0 }
+  game.spawnTimer = 0
+  game.updateSpawner(0.2)
+
+  assert.equal(game.assault.label, 'FLANK')
+  assert.ok(game.enemies.length >= 2)
+  assert.ok(game.enemies.every(function (enemy) { return enemy.y < 70 }))
 })
