@@ -1,6 +1,6 @@
 const COLORS = {
   background: '#000006',
-  grid: '#4a1046',
+  grid: '#2a7190',
   gridHot: '#15d8ff',
   white: '#ffffff',
   hud: '#b9ff36',

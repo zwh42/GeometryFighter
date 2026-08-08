@@ -21,6 +21,7 @@ function loadTypeScriptModule(relativePath) {
 const { TouchControls, controlBounds } = loadTypeScriptModule('assets/scripts/touch-controls.ts')
 const { GeometryWorld } = loadTypeScriptModule('assets/scripts/simulation.ts')
 const fighterShape = loadTypeScriptModule('assets/scripts/fighter-shape.ts')
+const cocosBackground = loadTypeScriptModule('assets/scripts/background-pattern.ts')
 
 test('Cocos fighter geometry preserves the original open-claw proportions', function () {
   // Given the tokenized outer and inner player hulls.
@@ -44,6 +45,19 @@ test('Cocos fighter geometry preserves the original open-claw proportions', func
   assert.equal(fighterShape.FIGHTER_GLOW_COLOR, '#42efff')
   assert.ok(fighterShape.FIGHTER_OUTER_STROKE > fighterShape.FIGHTER_INNER_STROKE)
   assert.ok(fighterShape.FIGHTER_OUTER_GLOW_STROKE < 8)
+})
+
+test('Cocos background progression mirrors wave and weapon upgrades', function () {
+  // Given the first Assault wave and weapon tier.
+  const first = cocosBackground.patternForProgress(1, 1)
+
+  // When either progression axis advances.
+  const afterWave = cocosBackground.patternForProgress(2, 1)
+  const afterUpgrade = cocosBackground.patternForProgress(2, 2)
+
+  // Then the Cocos renderer receives the same ordered pattern cycle.
+  assert.deepEqual([first, afterWave, afterUpgrade], ['lattice', 'diamond', 'orbit'])
+  assert.equal(cocosBackground.patternForProgress(4, 1), 'depth')
 })
 
 test('Cocos landscape touches drive movement and aim sticks independently', function () {

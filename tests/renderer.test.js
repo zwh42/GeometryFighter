@@ -48,6 +48,7 @@ function recordingContext() {
     stroke: function () {
       calls.push({
         kind: currentShape === 'arc' ? 'strokeArc' : 'strokePath',
+        alpha: this.globalAlpha,
         pointCount: currentPointCount,
         points: currentPoints.slice()
       })
@@ -134,6 +135,30 @@ test('active portrait controls expose the remembered firing sector', function ()
 
   // Then the two stick circles gain a third arc that exposes the firing sector.
   assert.ok(context.calls.filter(function (call) { return call.kind === 'strokeArc' }).length >= 3)
+})
+
+test('progression backgrounds fade in below combat stroke emphasis', function () {
+  // Given a live wave whose background pattern has just changed.
+  var context = recordingContext()
+  var game = new GeometryGame(fakePlatform(), { width: 0, height: 0 }, context)
+  game.resize(390, 844, 1)
+  game.startRound()
+  game.flash = 0
+  game.time = 8
+  game.score = 10000
+
+  // When the new weapon tier is rendered at its start and midpoint.
+  game.renderer.drawGrid(game)
+  var startStrokes = context.calls.filter(function (call) { return call.kind === 'strokePath' })
+  context.calls.length = 0
+  game.time = 8.4
+  game.renderer.drawGrid(game)
+  var midpointStrokes = context.calls.filter(function (call) { return call.kind === 'strokePath' })
+
+  // Then the pattern begins invisible and remains below the resting 0.16 alpha ceiling.
+  assert.ok(startStrokes.length > 0)
+  assert.ok(startStrokes.every(function (call) { return call.alpha === 0 }))
+  assert.ok(midpointStrokes.every(function (call) { return call.alpha > 0 && call.alpha < 0.16 }))
 })
 
 test('the player is rendered as two nested open Geometry Wars hexagons', function () {

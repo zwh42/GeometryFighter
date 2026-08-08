@@ -41,6 +41,8 @@ import {
   FIGHTER_OUTER_STROKE
 } from './fighter-shape'
 import type { FighterPoint } from './fighter-shape'
+import { buildBackgroundPaths, patternForProgress } from './background-pattern'
+import type { BackgroundPath, BackgroundPattern } from './background-pattern'
 import { TouchControls, controlBounds } from './touch-controls'
 import type { StickState } from './touch-controls'
 
@@ -80,6 +82,11 @@ interface FloatingText extends Vector {
 interface Star extends Vector {
   size: number
   phase: number
+}
+
+interface GridStroke {
+  readonly lineWidth: number
+  readonly color: Color
 }
 
 interface FrequencyParam {
@@ -187,6 +194,11 @@ export class GeometryFighter extends Component {
   private highScoreClock = 0
   private lastPlayerPosition: Vector = { x: 0, y: 0 }
   private readonly warpOutput: Vector = { x: 0, y: 0 }
+  private backgroundPattern: BackgroundPattern | null = null
+  private backgroundPaths: readonly BackgroundPath[] = []
+  private backgroundWidth = 0
+  private backgroundHeight = 0
+  private backgroundTransitionStartedAt = 0
   private particleReplaceCursor = 0
 
   protected override onLoad(): void {
@@ -531,15 +543,20 @@ export class GeometryFighter extends Component {
       sharp.fill()
     }
     const spacing = 58
-    this.drawGridLines(glow, spacing, 5, new Color(98, 16, 91, 20))
-    this.drawGridLines(sharp, spacing, 0.9, new Color(126, 31, 118, 58))
-    sharp.lineWidth = 1.1
-    sharp.strokeColor = new Color(255, 71, 225, 92)
-    sharp.moveTo(-width * 0.5 + 8, 0)
-    sharp.lineTo(width * 0.5 - 8, 0)
-    sharp.moveTo(0, -height * 0.5 + 8)
-    sharp.lineTo(0, height * 0.5 - 8)
-    sharp.stroke()
+    const patternWidth = width - 16
+    const patternHeight = height - 16
+    const pattern = patternForProgress(this.world.wave, weaponTier(this.world.score))
+    const patternChanged = pattern !== this.backgroundPattern
+    if (patternChanged || patternWidth !== this.backgroundWidth || patternHeight !== this.backgroundHeight) {
+      this.backgroundPattern = pattern
+      this.backgroundWidth = patternWidth
+      this.backgroundHeight = patternHeight
+      this.backgroundPaths = buildBackgroundPaths(pattern, { width: patternWidth, height: patternHeight, spacing, sampleStep: 12 })
+      if (patternChanged) this.backgroundTransitionStartedAt = this.time
+    }
+    const patternOpacity = clamp((this.time - this.backgroundTransitionStartedAt) / 0.8, 0, 1)
+    this.drawBackgroundPaths(glow, this.backgroundPaths, { lineWidth: 5, color: new Color(18, 64, 88, Math.floor(12 * patternOpacity)) })
+    this.drawBackgroundPaths(sharp, this.backgroundPaths, { lineWidth: 0.9, color: new Color(42, 113, 144, Math.floor(40 * patternOpacity)) })
     glow.lineWidth = 10
     glow.strokeColor = new Color(69, 191, 255, 36)
     glow.rect(-width * 0.5 + 8, -height * 0.5 + 8, width - 16, height - 16)
@@ -550,35 +567,18 @@ export class GeometryFighter extends Component {
     sharp.stroke()
   }
 
-  private drawGridLines(graphics: Graphics, spacing: number, lineWidth: number, color: Color): void {
-    const halfWidth = this.world.width * 0.5
-    const halfHeight = this.world.height * 0.5
-    const columns = Math.ceil(this.world.width / spacing) + 2
-    const rows = Math.ceil(this.world.height / spacing) + 2
-    graphics.lineWidth = lineWidth
-    graphics.strokeColor = color
-    for (let column = -Math.floor(columns / 2); column <= Math.ceil(columns / 2); column += 1) {
-      const x = column * spacing
-      for (let row = -Math.floor(rows / 2); row <= Math.ceil(rows / 2); row += 1) {
-        const y = row * spacing
-        const point = this.warpPoint(x, y)
-        if (row === -Math.floor(rows / 2)) graphics.moveTo(point.x, point.y)
+  private drawBackgroundPaths(graphics: Graphics, paths: readonly BackgroundPath[], stroke: GridStroke): void {
+    graphics.lineWidth = stroke.lineWidth
+    graphics.strokeColor = stroke.color
+    for (const path of paths) {
+      for (let index = 0; index < path.length; index += 1) {
+        const source = path[index]
+        if (!source) continue
+        const point = this.warpPoint(source.x, source.y)
+        if (index === 0) graphics.moveTo(point.x, point.y)
         else graphics.lineTo(point.x, point.y)
       }
     }
-    for (let row = -Math.floor(rows / 2); row <= Math.ceil(rows / 2); row += 1) {
-      const y = row * spacing
-      for (let column = -Math.floor(columns / 2); column <= Math.ceil(columns / 2); column += 1) {
-        const x = column * spacing
-        const point = this.warpPoint(x, y)
-        if (column === -Math.floor(columns / 2)) graphics.moveTo(point.x, point.y)
-        else graphics.lineTo(point.x, point.y)
-      }
-    }
-    graphics.stroke()
-    graphics.lineWidth = lineWidth * 0.8
-    graphics.strokeColor = new Color(color.r, color.g, color.b, Math.min(255, color.a * 1.35))
-    graphics.rect(-halfWidth, -halfHeight, this.world.width, this.world.height)
     graphics.stroke()
   }
 

@@ -1,5 +1,6 @@
 const math = require('./math')
 const config = require('./config')
+const background = require('./background-pattern')
 
 class Renderer {
   constructor(canvas, context, input, grid, particles) {
@@ -12,6 +13,11 @@ class Renderer {
     this.height = 0
     this.safeAreaTop = 0
     this.stars = []
+    this.backgroundPattern = null
+    this.backgroundPaths = []
+    this.backgroundWidth = 0
+    this.backgroundHeight = 0
+    this.backgroundTransitionStartedAt = 0
   }
 
   resize(width, height, safeArea) {
@@ -86,37 +92,41 @@ class Renderer {
     var right = this.width - margin
     var bottom = this.height - margin
     var blackholes = game.blackholes
+    var gridWidth = right - left
+    var gridHeight = bottom - top
+    var pattern = background.patternForProgress(game.assault.wave, math.weaponTierForScore(game.score))
+    var patternChanged = pattern !== this.backgroundPattern
+    if (patternChanged || gridWidth !== this.backgroundWidth || gridHeight !== this.backgroundHeight) {
+      this.backgroundPattern = pattern
+      this.backgroundWidth = gridWidth
+      this.backgroundHeight = gridHeight
+      this.backgroundPaths = background.buildBackgroundPaths(pattern, {
+        width: gridWidth,
+        height: gridHeight,
+        spacing: step,
+        sampleStep: 12
+      })
+      if (patternChanged) this.backgroundTransitionStartedAt = game.time
+    }
+    var patternOpacity = math.clamp((game.time - this.backgroundTransitionStartedAt) / 0.8, 0, 1)
+    var centerX = (left + right) * 0.5
+    var centerY = (top + bottom) * 0.5
     ctx.save()
     ctx.strokeStyle = config.COLORS.grid
     ctx.lineWidth = 0.65
-    ctx.globalAlpha = 0.18
-    for (var y = top; y <= bottom; y += step) {
+    ctx.globalAlpha = 0.16 * patternOpacity
+    ctx.shadowBlur = 0
+    for (var pathIndex = 0; pathIndex < this.backgroundPaths.length; pathIndex += 1) {
+      var path = this.backgroundPaths[pathIndex]
       ctx.beginPath()
-      for (var x = left; x <= right; x += 12) {
-        var horizontal = this.grid.distort(x, y, blackholes)
-        if (x === left) ctx.moveTo(horizontal.x, horizontal.y)
-        else ctx.lineTo(horizontal.x, horizontal.y)
+      for (var pointIndex = 0; pointIndex < path.length; pointIndex += 1) {
+        var point = path[pointIndex]
+        var distorted = this.grid.distort(centerX + point.x, centerY + point.y, blackholes)
+        if (pointIndex === 0) ctx.moveTo(distorted.x, distorted.y)
+        else ctx.lineTo(distorted.x, distorted.y)
       }
       ctx.stroke()
     }
-    for (var gx = left; gx <= right; gx += step) {
-      ctx.beginPath()
-      for (var gy = top; gy <= bottom; gy += 12) {
-        var vertical = this.grid.distort(gx, gy, blackholes)
-        if (gy === top) ctx.moveTo(vertical.x, vertical.y)
-        else ctx.lineTo(vertical.x, vertical.y)
-      }
-      ctx.stroke()
-    }
-    ctx.globalAlpha = 0.48
-    ctx.strokeStyle = config.COLORS.magenta
-    ctx.lineWidth = 0.8
-    ctx.beginPath()
-    ctx.moveTo(left, this.height * 0.5)
-    ctx.lineTo(right, this.height * 0.5)
-    ctx.moveTo(this.width * 0.5, top)
-    ctx.lineTo(this.width * 0.5, bottom)
-    ctx.stroke()
     ctx.globalAlpha = 0.78
     ctx.strokeStyle = config.COLORS.white
     ctx.lineWidth = 1.2
