@@ -1,3 +1,4 @@
+// allow: SIZE_OK — single Cocos scene component owns the immediate-mode presentation surface.
 import {
   _decorator,
   Camera,
@@ -20,27 +21,34 @@ import {
   view
 } from 'cc'
 import {
-  Bullet,
-  ControlState,
-  Enemy,
-  EnemyKind,
+  AIM_ASSIST_HALF_ANGLE,
   GeometryWorld,
-  Vector,
-  WorldEvent,
   clamp,
   length,
   normalized,
   weaponTier
 } from './simulation'
+import type { Ally, Bullet, ControlState, Enemy, Supply, Vector, WorldEvent } from './simulation'
+import {
+  FIGHTER_GLOW_ALPHA,
+  FIGHTER_GLOW_COLOR,
+  FIGHTER_HULL_COLOR,
+  FIGHTER_INNER_GLOW_STROKE,
+  FIGHTER_INNER_PATH,
+  FIGHTER_INNER_STROKE,
+  FIGHTER_OUTER_GLOW_STROKE,
+  FIGHTER_OUTER_PATH,
+  FIGHTER_OUTER_STROKE
+} from './fighter-shape'
+import type { FighterPoint } from './fighter-shape'
+import { buildBackgroundPaths, patternForProgress } from './background-pattern'
+import type { BackgroundPath, BackgroundPattern } from './background-pattern'
+import { TouchControls, controlBounds } from './touch-controls'
+import type { StickState } from './touch-controls'
 
 const { ccclass } = _decorator
-
-interface StickState {
-  id: number
-  active: boolean
-  base: Vector
-  knob: Vector
-}
+const TUTORIAL_HOLD = 3.5
+const TUTORIAL_DURATION = 4.5
 
 interface Particle extends Vector {
   vx: number
@@ -74,6 +82,11 @@ interface FloatingText extends Vector {
 interface Star extends Vector {
   size: number
   phase: number
+}
+
+interface GridStroke {
+  readonly lineWidth: number
+  readonly color: Color
 }
 
 interface FrequencyParam {
@@ -147,15 +160,17 @@ export class GeometryFighter extends Component {
   private readonly controls: ControlState = {
     move: { x: 0, y: 0 },
     aim: { x: 0, y: 0 },
-    bomb: false,
+    engaged: false,
     start: false,
     pause: false
   }
 
-  private readonly leftStick: StickState = this.makeStick()
-  private readonly rightStick: StickState = this.makeStick()
+  private readonly touchControls = new TouchControls()
+  private readonly leftStick = this.touchControls.left
+  private readonly rightStick = this.touchControls.right
   private readonly keys = new Set<KeyCode>()
   private readonly particles: Particle[] = []
+  private readonly particlePool: Particle[] = []
   private readonly ripples: Ripple[] = []
   private readonly playerTrail: TrailPoint[] = []
   private readonly floatingTexts: FloatingText[] = []
@@ -169,6 +184,7 @@ export class GeometryFighter extends Component {
   private controlsGraphics!: Graphics
   private scoreLabel!: Label
   private statusLabel!: Label
+  private assaultLabel!: Label
   private titleLabel!: Label
   private subtitleLabel!: Label
   private promptLabel!: Label
@@ -177,9 +193,16 @@ export class GeometryFighter extends Component {
   private time = 0
   private highScoreClock = 0
   private lastPlayerPosition: Vector = { x: 0, y: 0 }
+  private readonly warpOutput: Vector = { x: 0, y: 0 }
+  private backgroundPattern: BackgroundPattern | null = null
+  private backgroundPaths: readonly BackgroundPath[] = []
+  private backgroundWidth = 0
+  private backgroundHeight = 0
+  private backgroundTransitionStartedAt = 0
+  private particleReplaceCursor = 0
 
   protected override onLoad(): void {
-    view.setDesignResolutionSize(1280, 720, ResolutionPolicy.FIXED_HEIGHT)
+    view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_WIDTH)
     this.ensureSceneCamera()
     this.createRenderLayers()
     this.createInterface()
@@ -205,7 +228,6 @@ export class GeometryFighter extends Component {
     this.updateKeyboard()
     this.world.update(dt, this.controls)
     this.controls.start = false
-    this.controls.bomb = false
     this.controls.pause = false
     this.processWorldEvents(this.world.consumeEvents())
     this.updateVisualState(Math.min(dt, 0.034))
@@ -218,14 +240,10 @@ export class GeometryFighter extends Component {
     }
   }
 
-  private makeStick(): StickState {
-    return { id: -1, active: false, base: { x: 0, y: 0 }, knob: { x: 0, y: 0 } }
-  }
-
   private ensureSceneCamera(): void {
     if (!this.node.getComponent(Canvas)) this.node.addComponent(Canvas)
     const transform = this.node.getComponent(UITransform) || this.node.addComponent(UITransform)
-    transform.setContentSize(1280, 720)
+    transform.setContentSize(720, 1280)
     this.node.layer = Layers.Enum.UI_2D
     let cameraNode = this.node.getChildByName('Camera')
     if (!cameraNode) {
@@ -236,9 +254,9 @@ export class GeometryFighter extends Component {
     cameraNode.setPosition(0, 0, 1000)
     const camera = cameraNode.getComponent(Camera) || cameraNode.addComponent(Camera)
     camera.projection = Camera.ProjectionType.ORTHO
-    camera.orthoHeight = 360
+    camera.orthoHeight = 640
     camera.visibility = Layers.Enum.UI_2D
-    camera.clearColor = new Color(1, 3, 13, 255)
+    camera.clearColor = new Color(0, 0, 6, 255)
   }
 
   private createRenderLayers(): void {
@@ -256,7 +274,7 @@ export class GeometryFighter extends Component {
     layer.layer = Layers.Enum.UI_2D
     this.node.addChild(layer)
     const transform = layer.addComponent(UITransform)
-    transform.setContentSize(1280, 720)
+    transform.setContentSize(720, 1280)
     const graphics = layer.addComponent(Graphics)
     graphics.lineJoin = Graphics.LineJoin.ROUND
     graphics.lineCap = Graphics.LineCap.ROUND
@@ -265,13 +283,15 @@ export class GeometryFighter extends Component {
 
   private createInterface(): void {
     this.scoreLabel = this.createLabel('Score', 23, '#bcff49')
-    this.scoreLabel.horizontalAlign = Label.HorizontalAlign.LEFT
+    this.scoreLabel.horizontalAlign = Label.HorizontalAlign.CENTER
     this.statusLabel = this.createLabel('Status', 18, '#fff36a')
+    this.statusLabel.horizontalAlign = Label.HorizontalAlign.CENTER
+    this.assaultLabel = this.createLabel('Assault', 15, '#6ffcff')
     this.titleLabel = this.createLabel('Title', 74, '#eafbff')
     this.titleLabel.string = 'GEOMETRY\nFIGHTER'
     this.titleLabel.lineHeight = 72
     this.subtitleLabel = this.createLabel('Subtitle', 22, '#70ecff')
-    this.subtitleLabel.string = '霓虹网格 · 双摇杆生存射击 · 保持倍率'
+    this.subtitleLabel.string = '竖屏单手 · 方向扇区射击 · 保持倍率'
     this.promptLabel = this.createLabel('Prompt', 20, '#d6ff4f')
     this.messageLabel = this.createLabel('Message', 32, '#ffffff')
     this.messageLabel.node.active = false
@@ -297,7 +317,7 @@ export class GeometryFighter extends Component {
 
   private populateStars(): void {
     let value = 0x1836ef91
-    for (let index = 0; index < 95; index += 1) {
+    for (let index = 0; index < 48; index += 1) {
       value = (value * 1664525 + 1013904223) >>> 0
       const rx = value / 0x100000000
       value = (value * 1664525 + 1013904223) >>> 0
@@ -318,9 +338,15 @@ export class GeometryFighter extends Component {
   private resizeWorld(): void {
     const size = view.getVisibleSize()
     this.world.resize(size.width, size.height)
+    this.touchControls.resize(size.width, size.height, 1 / Math.max(0.01, view.getScaleX()))
+    this.syncSticks()
     const transform = this.node.getComponent(UITransform)
     transform?.setContentSize(size.width, size.height)
-    for (const child of this.node.children) child.getComponent(UITransform)?.setContentSize(size.width, size.height)
+    for (const child of this.node.children) {
+      if (child.getComponent(Graphics)) child.getComponent(UITransform)?.setContentSize(size.width, size.height)
+    }
+    const camera = this.node.getChildByName('Camera')?.getComponent(Camera)
+    if (camera) camera.orthoHeight = size.height * 0.5
   }
 
   private touchPosition(event: EventTouch): Vector {
@@ -333,73 +359,31 @@ export class GeometryFighter extends Component {
     this.synth.unlock()
     this.controls.start = true
     const point = this.touchPosition(event)
-    const bombY = -this.world.height * 0.5 + 58
-    if (length(point.x, point.y - bombY) < 52) {
-      this.controls.bomb = true
-      return
-    }
-    const id = event.getID() ?? -1
-    if (point.x < 0 && !this.leftStick.active) this.activateStick(this.leftStick, id, point)
-    else if (!this.rightStick.active) this.activateStick(this.rightStick, id, point)
+    this.touchControls.start({ id: event.getID() ?? -1, ...point })
     this.syncSticks()
   }
 
   private onTouchMove(event: EventTouch): void {
     const point = this.touchPosition(event)
-    const id = event.getID() ?? -1
-    this.moveStick(this.leftStick, id, point)
-    this.moveStick(this.rightStick, id, point)
+    this.touchControls.move({ id: event.getID() ?? -1, ...point })
     this.syncSticks()
   }
 
   private onTouchEnd(event: EventTouch): void {
-    const id = event.getID() ?? -1
-    if (this.leftStick.id === id) this.releaseStick(this.leftStick)
-    if (this.rightStick.id === id) this.releaseStick(this.rightStick)
+    this.touchControls.end(event.getID() ?? -1)
     this.syncSticks()
   }
 
-  private activateStick(stick: StickState, id: number, point: Vector): void {
-    stick.id = id
-    stick.active = true
-    stick.base = { ...point }
-    stick.knob = { ...point }
-  }
-
-  private moveStick(stick: StickState, id: number, point: Vector): void {
-    if (!stick.active || stick.id !== id) return
-    const dx = point.x - stick.base.x
-    const dy = point.y - stick.base.y
-    const direction = normalized(dx, dy)
-    const reach = Math.min(58, length(dx, dy))
-    stick.knob.x = stick.base.x + direction.x * reach
-    stick.knob.y = stick.base.y + direction.y * reach
-  }
-
-  private releaseStick(stick: StickState): void {
-    stick.id = -1
-    stick.active = false
-    stick.knob = { ...stick.base }
-  }
-
   private syncSticks(): void {
-    this.controls.move = this.stickVector(this.leftStick)
-    this.controls.aim = this.stickVector(this.rightStick)
-  }
-
-  private stickVector(stick: StickState): Vector {
-    if (!stick.active) return { x: 0, y: 0 }
-    const dx = stick.knob.x - stick.base.x
-    const dy = stick.knob.y - stick.base.y
-    const direction = normalized(dx, dy)
-    const strength = clamp((length(dx, dy) - 8) / 42, 0, 1)
-    return { x: direction.x * strength, y: direction.y * strength }
+    const vectors = this.touchControls.vectors()
+    this.controls.move = vectors.move
+    this.controls.aim = vectors.aim
+    this.controls.engaged = vectors.engaged
   }
 
   private onKeyDown(event: EventKeyboard): void {
     this.keys.add(event.keyCode)
     if (event.keyCode === KeyCode.ENTER) this.controls.start = true
-    if (event.keyCode === KeyCode.SPACE) this.controls.bomb = true
     if (event.keyCode === KeyCode.KEY_P || event.keyCode === KeyCode.ESCAPE) this.controls.pause = true
   }
 
@@ -414,6 +398,7 @@ export class GeometryFighter extends Component {
     const aimY = Number(this.keys.has(KeyCode.KEY_I)) - Number(this.keys.has(KeyCode.KEY_K))
     if (moveX || moveY) this.controls.move = normalized(moveX, moveY)
     else if (!this.leftStick.active) this.controls.move = { x: 0, y: 0 }
+    this.controls.engaged = this.leftStick.active || Boolean(moveX || moveY)
     if (aimX || aimY) this.controls.aim = normalized(aimX, aimY)
     else if (!this.rightStick.active) this.controls.aim = { x: 0, y: 0 }
   }
@@ -429,11 +414,6 @@ export class GeometryFighter extends Component {
         this.ripples.push({ x: event.x, y: event.y, radius: 10, speed: 270, life: 0.65, maxLife: 0.65, strength: 24, color: event.color })
         this.floatingTexts.push({ x: event.x, y: event.y, text: event.text, color: event.color, life: 0.72 })
         this.synth.tone(90, 0.1, 0.04, 'sawtooth', 0.42)
-      } else if (event.kind === 'bomb') {
-        this.spawnBurst(event.x, event.y, '#e9ffff', 110, 430)
-        this.ripples.push({ x: event.x, y: event.y, radius: 16, speed: 1050, life: 1, maxLife: 1, strength: 58, color: '#ffffff' })
-        this.showMessage(event.text, '#ffffff', 1.2)
-        this.synth.tone(58, 0.7, 0.12, 'sawtooth', 0.12)
       } else if (event.kind === 'death') {
         this.spawnBurst(event.x, event.y, '#ffffff', 90, 360)
         this.ripples.push({ x: event.x, y: event.y, radius: 15, speed: 560, life: 0.9, maxLife: 0.9, strength: 44, color: '#ff5679' })
@@ -444,6 +424,14 @@ export class GeometryFighter extends Component {
         this.synth.tone(event.kind === 'reward' ? 760 : 430, 0.18, 0.05, 'sine', 1.7)
       } else if (event.kind === 'blackhole') {
         this.spawnBurst(event.x, event.y, '#ff4fd8', 4, 100)
+      } else if (event.kind === 'supply') {
+        if (event.text) this.showMessage(event.text, event.color, 1.15)
+        this.spawnBurst(event.x, event.y, event.color, event.text ? 18 : 6, event.text ? 160 : 90)
+      } else if (event.kind === 'super') {
+        this.showMessage(event.text, event.color, 1.4)
+        this.spawnBurst(event.x, event.y, event.color, 56, 310)
+        this.ripples.push({ x: event.x, y: event.y, radius: 10, speed: 360, life: 0.75, maxLife: 0.75, strength: 30, color: event.color })
+        this.synth.tone(620, 0.24, 0.06, 'square', 1.85)
       }
     }
   }
@@ -453,19 +441,23 @@ export class GeometryFighter extends Component {
       const angle = Math.random() * Math.PI * 2
       const velocity = speed * (0.25 + Math.random() * 0.75)
       const life = 0.25 + Math.random() * 0.75
-      this.particles.push({
-        x,
-        y,
-        vx: Math.cos(angle) * velocity,
-        vy: Math.sin(angle) * velocity,
-        life,
-        maxLife: life,
-        size: 1.2 + Math.random() * 3.6,
-        color,
-        drag: 1.5 + Math.random() * 3
-      })
+      const replacing = this.particles.length >= 850
+      if (replacing) this.particleReplaceCursor %= this.particles.length
+      const particle = replacing
+        ? this.particles[this.particleReplaceCursor]
+        : this.particlePool.pop() ?? { x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, size: 1, color: '#ffffff', drag: 1 }
+      particle.x = x
+      particle.y = y
+      particle.vx = Math.cos(angle) * velocity
+      particle.vy = Math.sin(angle) * velocity
+      particle.life = life
+      particle.maxLife = life
+      particle.size = 1.2 + Math.random() * 3.6
+      particle.color = color
+      particle.drag = 1.5 + Math.random() * 3
+      if (replacing) this.particleReplaceCursor += 1
+      else this.particles.push(particle)
     }
-    if (this.particles.length > 850) this.particles.splice(0, this.particles.length - 850)
   }
 
   private showMessage(text: string, color: string, duration: number): void {
@@ -476,6 +468,7 @@ export class GeometryFighter extends Component {
   }
 
   private updateVisualState(dt: number): void {
+    let write = 0
     for (const particle of this.particles) {
       particle.x += particle.vx * dt
       particle.y += particle.vy * dt
@@ -483,28 +476,42 @@ export class GeometryFighter extends Component {
       particle.vx *= drag
       particle.vy *= drag
       particle.life -= dt
+      if (particle.life > 0) {
+        this.particles[write] = particle
+        write += 1
+      } else {
+        this.particlePool.push(particle)
+      }
     }
-    for (let index = this.particles.length - 1; index >= 0; index -= 1) {
-      if (this.particles[index].life <= 0) this.particles.splice(index, 1)
-    }
+    this.particles.length = write
+    if (this.particleReplaceCursor >= write) this.particleReplaceCursor = 0
+
+    write = 0
     for (const ripple of this.ripples) {
       ripple.radius += ripple.speed * dt
       ripple.life -= dt
+      if (ripple.life > 0) {
+        this.ripples[write] = ripple
+        write += 1
+      }
     }
-    for (let index = this.ripples.length - 1; index >= 0; index -= 1) {
-      if (this.ripples[index].life <= 0) this.ripples.splice(index, 1)
-    }
+    this.ripples.length = write
+
+    write = 0
     for (const text of this.floatingTexts) {
       text.y += 30 * dt
       text.life -= dt
+      if (text.life > 0) {
+        this.floatingTexts[write] = text
+        write += 1
+      }
     }
-    for (let index = this.floatingTexts.length - 1; index >= 0; index -= 1) {
-      if (this.floatingTexts[index].life <= 0) this.floatingTexts.splice(index, 1)
-    }
+    this.floatingTexts.length = write
     if (this.world.player.alive && this.world.state === 'playing') {
       const moved = length(this.world.player.x - this.lastPlayerPosition.x, this.world.player.y - this.lastPlayerPosition.y)
       if (moved > 2) this.playerTrail.push({ x: this.world.player.x, y: this.world.player.y, life: 0.34 })
-      this.lastPlayerPosition = { x: this.world.player.x, y: this.world.player.y }
+      this.lastPlayerPosition.x = this.world.player.x
+      this.lastPlayerPosition.y = this.world.player.y
     }
     for (const point of this.playerTrail) point.life -= dt
     while (this.playerTrail.length > 30 || this.playerTrail[0]?.life <= 0) this.playerTrail.shift()
@@ -526,57 +533,52 @@ export class GeometryFighter extends Component {
     sharp.clear()
     const width = this.world.width
     const height = this.world.height
-    glow.fillColor = new Color(0, 2, 13, 255)
+    glow.fillColor = new Color(0, 0, 6, 255)
     glow.rect(-width * 0.5, -height * 0.5, width, height)
     glow.fill()
     for (const star of this.stars) {
-      const alpha = 32 + Math.floor((Math.sin(this.time * 1.8 + star.phase) * 0.5 + 0.5) * 70)
-      sharp.fillColor = new Color(63, 137, 190, alpha)
+      const alpha = 10 + Math.floor((Math.sin(this.time * 1.8 + star.phase) * 0.5 + 0.5) * 28)
+      sharp.fillColor = new Color(95, 157, 190, alpha)
       sharp.circle(star.x * width, star.y * height, star.size)
       sharp.fill()
     }
-    const spacing = 42
-    this.drawGridLines(glow, spacing, 7, new Color(0, 91, 156, 23))
-    this.drawGridLines(sharp, spacing, 1.15, new Color(21, 149, 221, 72))
-    glow.lineWidth = 14
-    glow.strokeColor = new Color(69, 191, 255, 44)
+    const spacing = 58
+    const patternWidth = width - 16
+    const patternHeight = height - 16
+    const pattern = patternForProgress(this.world.wave, weaponTier(this.world.score))
+    const patternChanged = pattern !== this.backgroundPattern
+    if (patternChanged || patternWidth !== this.backgroundWidth || patternHeight !== this.backgroundHeight) {
+      this.backgroundPattern = pattern
+      this.backgroundWidth = patternWidth
+      this.backgroundHeight = patternHeight
+      this.backgroundPaths = buildBackgroundPaths(pattern, { width: patternWidth, height: patternHeight, spacing, sampleStep: 12 })
+      if (patternChanged) this.backgroundTransitionStartedAt = this.time
+    }
+    const patternOpacity = clamp((this.time - this.backgroundTransitionStartedAt) / 0.8, 0, 1)
+    this.drawBackgroundPaths(glow, this.backgroundPaths, { lineWidth: 5, color: new Color(18, 64, 88, Math.floor(12 * patternOpacity)) })
+    this.drawBackgroundPaths(sharp, this.backgroundPaths, { lineWidth: 0.9, color: new Color(42, 113, 144, Math.floor(40 * patternOpacity)) })
+    glow.lineWidth = 10
+    glow.strokeColor = new Color(69, 191, 255, 36)
     glow.rect(-width * 0.5 + 8, -height * 0.5 + 8, width - 16, height - 16)
     glow.stroke()
-    sharp.lineWidth = 2.2
+    sharp.lineWidth = 1.8
     sharp.strokeColor = new Color(218, 250, 255, 230)
     sharp.rect(-width * 0.5 + 8, -height * 0.5 + 8, width - 16, height - 16)
     sharp.stroke()
   }
 
-  private drawGridLines(graphics: Graphics, spacing: number, lineWidth: number, color: Color): void {
-    const halfWidth = this.world.width * 0.5
-    const halfHeight = this.world.height * 0.5
-    const columns = Math.ceil(this.world.width / spacing) + 2
-    const rows = Math.ceil(this.world.height / spacing) + 2
-    graphics.lineWidth = lineWidth
-    graphics.strokeColor = color
-    for (let column = -Math.floor(columns / 2); column <= Math.ceil(columns / 2); column += 1) {
-      const x = column * spacing
-      for (let row = -Math.floor(rows / 2); row <= Math.ceil(rows / 2); row += 1) {
-        const y = row * spacing
-        const point = this.warpPoint(x, y)
-        if (row === -Math.floor(rows / 2)) graphics.moveTo(point.x, point.y)
+  private drawBackgroundPaths(graphics: Graphics, paths: readonly BackgroundPath[], stroke: GridStroke): void {
+    graphics.lineWidth = stroke.lineWidth
+    graphics.strokeColor = stroke.color
+    for (const path of paths) {
+      for (let index = 0; index < path.length; index += 1) {
+        const source = path[index]
+        if (!source) continue
+        const point = this.warpPoint(source.x, source.y)
+        if (index === 0) graphics.moveTo(point.x, point.y)
         else graphics.lineTo(point.x, point.y)
       }
     }
-    for (let row = -Math.floor(rows / 2); row <= Math.ceil(rows / 2); row += 1) {
-      const y = row * spacing
-      for (let column = -Math.floor(columns / 2); column <= Math.ceil(columns / 2); column += 1) {
-        const x = column * spacing
-        const point = this.warpPoint(x, y)
-        if (column === -Math.floor(columns / 2)) graphics.moveTo(point.x, point.y)
-        else graphics.lineTo(point.x, point.y)
-      }
-    }
-    graphics.stroke()
-    graphics.lineWidth = lineWidth * 0.8
-    graphics.strokeColor = new Color(color.r, color.g, color.b, Math.min(255, color.a * 1.35))
-    graphics.rect(-halfWidth, -halfHeight, this.world.width, this.world.height)
     graphics.stroke()
   }
 
@@ -606,7 +608,9 @@ export class GeometryFighter extends Component {
         warpedY += dy / distance * force
       }
     }
-    return { x: warpedX, y: warpedY }
+    this.warpOutput.x = warpedX
+    this.warpOutput.y = warpedY
+    return this.warpOutput
   }
 
   private renderEffects(): void {
@@ -650,11 +654,11 @@ export class GeometryFighter extends Component {
   }
 
   private drawBullet(glow: Graphics, sharp: Graphics, bullet: Bullet): void {
-    const tail = 20
+    const tail = bullet.kind === 'missile' ? 30 : 20
     const x2 = bullet.x - Math.cos(bullet.angle) * tail
     const y2 = bullet.y - Math.sin(bullet.angle) * tail
     glow.lineWidth = 12
-    glow.strokeColor = new Color(255, 239, 73, 55)
+    glow.strokeColor = bullet.kind === 'missile' ? new Color(255, 137, 42, 70) : new Color(255, 239, 73, 55)
     glow.moveTo(bullet.x, bullet.y)
     glow.lineTo(x2, y2)
     glow.stroke()
@@ -663,6 +667,10 @@ export class GeometryFighter extends Component {
     sharp.moveTo(bullet.x, bullet.y)
     sharp.lineTo(x2, y2)
     sharp.stroke()
+    if (bullet.kind === 'missile') {
+      sharp.fillColor = new Color(255, 252, 226, 255)
+      this.polygon(sharp, bullet.x, bullet.y, 7, 3, bullet.angle, true)
+    }
   }
 
   private renderEntities(): void {
@@ -671,8 +679,22 @@ export class GeometryFighter extends Component {
     for (const enemy of this.world.enemies) {
       if (enemy.dead) continue
       const spawnAlpha = enemy.spawnTimer > 0 ? 1 - enemy.spawnTimer / 0.45 : 1
+      if (enemy.spawnTimer > 0) {
+        this.drawSpawnTelegraph(this.entitiesGlow, enemy, true)
+        this.drawSpawnTelegraph(this.entities, enemy, false)
+      }
       this.drawEnemy(this.entitiesGlow, enemy, true, spawnAlpha)
       this.drawEnemy(this.entities, enemy, false, spawnAlpha)
+    }
+    for (const supply of this.world.supplies) {
+      if (supply.dead) continue
+      this.drawSupply(this.entitiesGlow, supply, true)
+      this.drawSupply(this.entities, supply, false)
+    }
+    for (const ally of this.world.allies) {
+      if (ally.life <= 0) continue
+      this.drawAlly(this.entitiesGlow, ally, true)
+      this.drawAlly(this.entities, ally, false)
     }
     if (this.world.player.alive) {
       const flicker = this.world.player.invulnerable > 0 && Math.floor(this.time * 14) % 2 === 0
@@ -683,76 +705,243 @@ export class GeometryFighter extends Component {
     }
   }
 
+  private drawSpawnTelegraph(graphics: Graphics, enemy: Enemy, glow: boolean): void {
+    const progress = clamp(1 - enemy.spawnTimer / 0.45, 0, 1)
+    const radius = enemy.radius * (2.4 - progress * 0.65)
+    const rotation = this.time * 2.4 + enemy.phase
+    graphics.lineWidth = glow ? 7 : 1.3
+    graphics.strokeColor = this.color(this.world.enemyColor(enemy.kind), Math.floor((glow ? 44 : 168) * (0.55 + progress * 0.45)))
+    for (let ring = 0; ring < 2; ring += 1) {
+      const start = ring * Math.PI + progress * 1.8 + rotation
+      graphics.arc(enemy.x, enemy.y, radius + ring * 6, start, start + Math.PI * 0.72, false)
+      graphics.stroke()
+    }
+    for (let tick = 0; tick < 4; tick += 1) {
+      const angle = rotation + tick * Math.PI * 0.5
+      graphics.moveTo(enemy.x + Math.cos(angle) * (radius + 8), enemy.y + Math.sin(angle) * (radius + 8))
+      graphics.lineTo(enemy.x + Math.cos(angle) * (radius + 15), enemy.y + Math.sin(angle) * (radius + 15))
+    }
+    graphics.stroke()
+  }
+
   private drawPlayer(graphics: Graphics, glow: boolean): void {
     const player = this.world.player
-    const color = glow ? new Color(92, 235, 255, 66) : new Color(232, 255, 255, 255)
-    graphics.lineWidth = glow ? 13 : 2.6
-    graphics.strokeColor = color
-    const forward = { x: Math.cos(player.angle), y: Math.sin(player.angle) }
-    const side = { x: -forward.y, y: forward.x }
-    graphics.moveTo(player.x + forward.x * 19, player.y + forward.y * 19)
-    graphics.lineTo(player.x - forward.x * 12 + side.x * 11, player.y - forward.y * 12 + side.y * 11)
-    graphics.lineTo(player.x - forward.x * 6, player.y - forward.y * 6)
-    graphics.lineTo(player.x - forward.x * 12 - side.x * 11, player.y - forward.y * 12 - side.y * 11)
-    graphics.close()
+    const scale = this.touchControls.unitsPerPixel
+    const forwardX = Math.cos(player.angle)
+    const forwardY = Math.sin(player.angle)
+    const sideX = -forwardY
+    const sideY = forwardX
+    graphics.strokeColor = this.color(glow ? FIGHTER_GLOW_COLOR : FIGHTER_HULL_COLOR, glow ? FIGHTER_GLOW_ALPHA : 255)
+    this.drawPlayerPath(graphics, FIGHTER_OUTER_PATH, glow ? FIGHTER_OUTER_GLOW_STROKE : FIGHTER_OUTER_STROKE, scale, forwardX, forwardY, sideX, sideY)
+    this.drawPlayerPath(graphics, FIGHTER_INNER_PATH, glow ? FIGHTER_INNER_GLOW_STROKE : FIGHTER_INNER_STROKE, scale, forwardX, forwardY, sideX, sideY)
+  }
+
+  private drawPlayerPath(graphics: Graphics, points: readonly FighterPoint[], stroke: number, scale: number, forwardX: number, forwardY: number, sideX: number, sideY: number): void {
+    const player = this.world.player
+    graphics.lineWidth = stroke * scale
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index]
+      const x = player.x + (forwardX * point.forward + sideX * point.side) * scale
+      const y = player.y + (forwardY * point.forward + sideY * point.side) * scale
+      if (index === 0) graphics.moveTo(x, y)
+      else graphics.lineTo(x, y)
+    }
     graphics.stroke()
-    if (!glow) {
-      graphics.strokeColor = new Color(93, 255, 186, 255)
-      graphics.moveTo(player.x - forward.x * 8 + side.x * 5, player.y - forward.y * 8 + side.y * 5)
-      graphics.lineTo(player.x - forward.x * 18, player.y - forward.y * 18)
-      graphics.lineTo(player.x - forward.x * 8 - side.x * 5, player.y - forward.y * 8 - side.y * 5)
+  }
+
+  private drawAlly(graphics: Graphics, ally: Ally, glow: boolean): void {
+    const forward = { x: Math.cos(ally.angle), y: Math.sin(ally.angle) }
+    const side = { x: -forward.y, y: forward.x }
+    graphics.lineWidth = glow ? 10 : 1.8
+    graphics.strokeColor = glow ? new Color(67, 246, 255, 62) : new Color(176, 255, 255, 255)
+    graphics.circle(ally.x, ally.y, 5.5)
+    graphics.stroke()
+    graphics.moveTo(ally.x + forward.x * 12, ally.y + forward.y * 12)
+    graphics.lineTo(ally.x + forward.x * 3 + side.x * 7, ally.y + forward.y * 3 + side.y * 7)
+    graphics.lineTo(ally.x - forward.x * 7 + side.x * 4, ally.y - forward.y * 7 + side.y * 4)
+    graphics.moveTo(ally.x + forward.x * 3 - side.x * 7, ally.y + forward.y * 3 - side.y * 7)
+    graphics.lineTo(ally.x + forward.x * 12, ally.y + forward.y * 12)
+    graphics.lineTo(ally.x - forward.x * 7 - side.x * 4, ally.y - forward.y * 7 - side.y * 4)
+    graphics.stroke()
+  }
+
+  private drawSupply(graphics: Graphics, supply: Supply, glow: boolean): void {
+    const alpha = supply.spawnTimer > 0 ? 1 - supply.spawnTimer / 0.6 : 1
+    const rotation = this.time * (glow ? 0.65 : -0.85)
+    graphics.lineWidth = glow ? 13 : 2.2
+    graphics.strokeColor = glow ? new Color(188, 255, 73, Math.floor(alpha * 68)) : new Color(219, 255, 149, Math.floor(alpha * 255))
+    graphics.circle(supply.x, supply.y, supply.radius + 4)
+    graphics.stroke()
+    for (let orbit = 0; orbit < 2; orbit += 1) {
+      const orbitRadius = supply.radius - 3 - orbit * 6
+      const orbitStart = rotation * (orbit === 0 ? -1.8 : 2.1) + orbit * Math.PI * 0.5
+      graphics.arc(supply.x, supply.y, orbitRadius, orbitStart, orbitStart + Math.PI * 1.25, false)
       graphics.stroke()
+    }
+    for (let ray = 0; ray < 4; ray += 1) {
+      const rayAngle = ray * Math.PI * 0.5 - rotation * 0.4
+      graphics.moveTo(supply.x + Math.cos(rayAngle) * (supply.radius + 8), supply.y + Math.sin(rayAngle) * (supply.radius + 8))
+      graphics.lineTo(supply.x + Math.cos(rayAngle) * (supply.radius + 16), supply.y + Math.sin(rayAngle) * (supply.radius + 16))
+    }
+    graphics.stroke()
+    graphics.strokeColor = glow ? new Color(245, 255, 224, Math.floor(alpha * 62)) : new Color(245, 255, 224, Math.floor(alpha * 255))
+    if (supply.effect === 'detonation') {
+      for (let spoke = 0; spoke < 6; spoke += 1) {
+        const spokeAngle = rotation + spoke / 6 * Math.PI * 2
+        graphics.moveTo(supply.x + Math.cos(spokeAngle) * 3, supply.y + Math.sin(spokeAngle) * 3)
+        graphics.lineTo(supply.x + Math.cos(spokeAngle) * 11, supply.y + Math.sin(spokeAngle) * 11)
+      }
+      graphics.stroke()
+    } else if (supply.effect === 'overload') {
+      graphics.moveTo(supply.x + 2, supply.y + 11)
+      graphics.lineTo(supply.x - 5, supply.y - 1)
+      graphics.lineTo(supply.x + 1, supply.y - 1)
+      graphics.lineTo(supply.x - 2, supply.y - 11)
+      graphics.lineTo(supply.x + 7, supply.y + 3)
+      graphics.lineTo(supply.x + 1, supply.y + 3)
+      graphics.stroke()
+    } else {
+      this.polygon(graphics, supply.x, supply.y, 9, 3, rotation, false)
+      graphics.circle(supply.x, supply.y, 2.6)
+      graphics.fillColor = new Color(245, 255, 224, Math.floor(alpha * 255))
+      graphics.fill()
+    }
+    if (!glow) {
+      for (let index = 0; index < supply.maxHealth; index += 1) {
+        const angle = index / supply.maxHealth * Math.PI * 2 - Math.PI * 0.5
+        graphics.fillColor = index < supply.health ? new Color(245, 255, 224, 255) : new Color(245, 255, 224, 50)
+        graphics.circle(supply.x + Math.cos(angle) * (supply.radius + 8), supply.y + Math.sin(angle) * (supply.radius + 8), 2)
+        graphics.fill()
+      }
     }
   }
 
   private drawEnemy(graphics: Graphics, enemy: Enemy, glow: boolean, alpha: number): void {
     const colorHex = this.world.enemyColor(enemy.kind)
     graphics.strokeColor = this.color(colorHex, Math.floor(alpha * (glow ? 70 : 245)))
-    graphics.fillColor = this.color(colorHex, Math.floor(alpha * (glow ? 22 : 35)))
-    graphics.lineWidth = glow ? 12 : 2.4
-    if (enemy.kind === 'wanderer') {
-      this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 4, enemy.angle + Math.PI * 0.25, true)
-    } else if (enemy.kind === 'grunt') {
-      this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 4, enemy.angle, true)
-      if (!glow) this.polygon(graphics, enemy.x, enemy.y, enemy.radius * 0.45, 4, -enemy.angle, false)
-    } else if (enemy.kind === 'weaver') {
-      this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 3, enemy.angle, true)
-      if (!glow) this.polygon(graphics, enemy.x, enemy.y, enemy.radius * 0.48, 3, enemy.angle + Math.PI, false)
-    } else if (enemy.kind === 'spinner') {
-      for (let arm = 0; arm < 4; arm += 1) {
-        const angle = enemy.angle + arm * Math.PI * 0.5
-        graphics.moveTo(enemy.x + Math.cos(angle) * 4, enemy.y + Math.sin(angle) * 4)
-        graphics.lineTo(enemy.x + Math.cos(angle) * 19, enemy.y + Math.sin(angle) * 19)
-      }
-      graphics.stroke()
-      graphics.circle(enemy.x, enemy.y, 6)
-      graphics.stroke()
-    } else if (enemy.kind === 'snake') {
-      this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 3, enemy.angle, true)
-      for (let index = enemy.segments.length - 1; index >= 0; index -= 1) {
-        const segment = enemy.segments[index]
-        const radius = 7 + (enemy.segments.length - index) * 0.35
-        this.polygon(graphics, segment.x, segment.y, radius, 4, segment.angle + Math.PI * 0.25, index % 2 === 0)
-      }
-    } else if (enemy.kind === 'repulsar') {
-      this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 6, enemy.angle, false)
-      graphics.circle(enemy.x, enemy.y, enemy.radius * 0.52)
-      graphics.stroke()
-      if (!glow) {
-        graphics.circle(enemy.x, enemy.y, enemy.radius * 1.55 + Math.sin(this.time * 5) * 4)
+    graphics.fillColor = this.color(colorHex, 0)
+    graphics.lineWidth = glow ? 9 : 1.8
+    switch (enemy.kind) {
+      case 'wanderer':
+        for (let arm = 0; arm < 4; arm += 1) {
+          const angle = enemy.angle + arm * Math.PI * 0.5
+          const sideAngle = angle - Math.PI * 0.5
+          graphics.moveTo(enemy.x + Math.cos(angle) * 2, enemy.y + Math.sin(angle) * 2)
+          graphics.lineTo(enemy.x + Math.cos(angle) * enemy.radius * 0.42 + Math.cos(sideAngle) * enemy.radius * 0.32, enemy.y + Math.sin(angle) * enemy.radius * 0.42 + Math.sin(sideAngle) * enemy.radius * 0.32)
+          graphics.lineTo(enemy.x + Math.cos(angle) * enemy.radius + Math.cos(sideAngle) * enemy.radius * 0.08, enemy.y + Math.sin(angle) * enemy.radius + Math.sin(sideAngle) * enemy.radius * 0.08)
+          graphics.lineTo(enemy.x + Math.cos(angle) * enemy.radius * 0.58 - Math.cos(sideAngle) * enemy.radius * 0.2, enemy.y + Math.sin(angle) * enemy.radius * 0.58 - Math.sin(sideAngle) * enemy.radius * 0.2)
+        }
         graphics.stroke()
-      }
-    } else {
-      const pulse = Math.sin(this.time * 4 + enemy.phase) * 3
-      graphics.circle(enemy.x, enemy.y, enemy.radius + pulse)
-      graphics.stroke()
-      graphics.circle(enemy.x, enemy.y, enemy.radius * 0.63)
-      if (!glow) {
-        graphics.fillColor = new Color(0, 0, 5, 235)
-        graphics.fill()
-        graphics.strokeColor = new Color(255, 205, 94, 230)
-        graphics.circle(enemy.x, enemy.y, enemy.radius * 1.22 + pulse)
+        return
+      case 'grunt':
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 4, enemy.angle + Math.PI * 0.25, true)
+        if (!glow) {
+          const forward = { x: Math.cos(enemy.angle), y: Math.sin(enemy.angle) }
+          const side = { x: -forward.y, y: forward.x }
+          graphics.moveTo(enemy.x - forward.x * enemy.radius * 0.7, enemy.y - forward.y * enemy.radius * 0.7)
+          graphics.lineTo(enemy.x + forward.x * enemy.radius * 0.7, enemy.y + forward.y * enemy.radius * 0.7)
+          graphics.moveTo(enemy.x - side.x * enemy.radius * 0.7, enemy.y - side.y * enemy.radius * 0.7)
+          graphics.lineTo(enemy.x + side.x * enemy.radius * 0.7, enemy.y + side.y * enemy.radius * 0.7)
+          graphics.stroke()
+        }
+        return
+      case 'weaver':
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 4, enemy.angle, true)
+        if (!glow) this.polygon(graphics, enemy.x, enemy.y, enemy.radius * 0.72, 4, enemy.angle + Math.PI * 0.25, false)
+        return
+      case 'spinner':
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 4, enemy.angle, true)
+        if (!glow) {
+          const forward = { x: Math.cos(enemy.angle + Math.PI * 0.25), y: Math.sin(enemy.angle + Math.PI * 0.25) }
+          const side = { x: -forward.y, y: forward.x }
+          graphics.moveTo(enemy.x - forward.x * enemy.radius, enemy.y - forward.y * enemy.radius)
+          graphics.lineTo(enemy.x + forward.x * enemy.radius, enemy.y + forward.y * enemy.radius)
+          graphics.moveTo(enemy.x - side.x * enemy.radius, enemy.y - side.y * enemy.radius)
+          graphics.lineTo(enemy.x + side.x * enemy.radius, enemy.y + side.y * enemy.radius)
+          graphics.stroke()
+        }
+        return
+      case 'snake':
+        graphics.strokeColor = glow ? new Color(67, 246, 255, Math.floor(alpha * 70)) : new Color(67, 246, 255, Math.floor(alpha * 245))
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 3, enemy.angle, true)
+        graphics.strokeColor = this.color(colorHex, Math.floor(alpha * (glow ? 70 : 245)))
+        for (let index = enemy.segments.length - 1; index >= 0; index -= 1) {
+          const segment = enemy.segments[index]
+          const radius = 7 + (enemy.segments.length - index) * 0.35
+          this.polygon(graphics, segment.x, segment.y, radius, 4, segment.angle + Math.PI * 0.25, index % 2 === 0)
+        }
+        return
+      case 'repulsar':
+        {
+          const forward = { x: Math.cos(enemy.angle), y: Math.sin(enemy.angle) }
+          const side = { x: -forward.y, y: forward.x }
+          graphics.moveTo(enemy.x + forward.x * enemy.radius, enemy.y + forward.y * enemy.radius)
+          graphics.lineTo(enemy.x + forward.x * enemy.radius * 0.15 + side.x * enemy.radius * 0.62, enemy.y + forward.y * enemy.radius * 0.15 + side.y * enemy.radius * 0.62)
+          graphics.lineTo(enemy.x - forward.x * enemy.radius * 0.72 + side.x * enemy.radius * 0.42, enemy.y - forward.y * enemy.radius * 0.72 + side.y * enemy.radius * 0.42)
+          graphics.lineTo(enemy.x - forward.x * enemy.radius * 0.35, enemy.y - forward.y * enemy.radius * 0.35)
+          graphics.lineTo(enemy.x - forward.x * enemy.radius * 0.72 - side.x * enemy.radius * 0.42, enemy.y - forward.y * enemy.radius * 0.72 - side.y * enemy.radius * 0.42)
+          graphics.lineTo(enemy.x + forward.x * enemy.radius * 0.15 - side.x * enemy.radius * 0.62, enemy.y + forward.y * enemy.radius * 0.15 - side.y * enemy.radius * 0.62)
+          graphics.close()
+          graphics.stroke()
+          graphics.strokeColor = glow ? new Color(67, 246, 255, Math.floor(alpha * 70)) : new Color(67, 246, 255, Math.floor(alpha * 245))
+          graphics.moveTo(enemy.x - forward.x * enemy.radius * 0.72 + side.x * enemy.radius * 0.42, enemy.y - forward.y * enemy.radius * 0.72 + side.y * enemy.radius * 0.42)
+          graphics.lineTo(enemy.x - forward.x * enemy.radius, enemy.y - forward.y * enemy.radius)
+          graphics.lineTo(enemy.x - forward.x * enemy.radius * 0.72 - side.x * enemy.radius * 0.42, enemy.y - forward.y * enemy.radius * 0.72 - side.y * enemy.radius * 0.42)
+        }
         graphics.stroke()
+        return
+      case 'blackhole': {
+        const pulse = Math.sin(this.time * 4 + enemy.phase) * 3
+        graphics.circle(enemy.x, enemy.y, enemy.radius + pulse)
+        graphics.stroke()
+        graphics.circle(enemy.x, enemy.y, enemy.radius * 0.63)
+        if (!glow) {
+          graphics.fillColor = new Color(0, 0, 5, 235)
+          graphics.fill()
+          graphics.strokeColor = new Color(255, 205, 94, 230)
+          graphics.circle(enemy.x, enemy.y, enemy.radius * 1.22 + pulse)
+          graphics.stroke()
+          graphics.strokeColor = new Color(157, 97, 255, 220)
+          graphics.arc(enemy.x, enemy.y, enemy.radius * 0.48, -this.time * 1.7, -this.time * 1.7 + Math.PI * 1.35, false)
+          graphics.stroke()
+        }
+        return
+      }
+      case 'dart':
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 3, enemy.angle, true)
+        if (!glow) {
+          graphics.moveTo(enemy.x - Math.cos(enemy.angle) * enemy.radius * 0.55, enemy.y - Math.sin(enemy.angle) * enemy.radius * 0.55)
+          graphics.lineTo(enemy.x + Math.cos(enemy.angle) * enemy.radius, enemy.y + Math.sin(enemy.angle) * enemy.radius)
+          graphics.stroke()
+        }
+        return
+      case 'orbiter':
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 4, enemy.angle + Math.PI * 0.25, true)
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius * 0.48, 4, -enemy.angle, false)
+        if (!glow) {
+          graphics.circle(enemy.x, enemy.y, enemy.radius * 1.45)
+          graphics.stroke()
+        }
+        return
+      case 'crusher':
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 5, enemy.angle, true)
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius * 0.58, 5, -enemy.angle, false)
+        return
+      case 'splitter':
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 6, enemy.angle, true)
+        for (let split = 0; split < 3; split += 1) {
+          const angle = enemy.angle + split / 3 * Math.PI * 2
+          graphics.moveTo(enemy.x, enemy.y)
+          graphics.lineTo(enemy.x + Math.cos(angle) * enemy.radius, enemy.y + Math.sin(angle) * enemy.radius)
+        }
+        graphics.stroke()
+        return
+      case 'shard':
+        this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 3, enemy.angle, true)
+        return
+      default: {
+        const unreachable: never = enemy.kind
+        void unreachable
       }
     }
   }
@@ -774,29 +963,47 @@ export class GeometryFighter extends Component {
     const graphics = this.controlsGraphics
     graphics.clear()
     if (this.world.state !== 'playing') return
-    const defaultY = -this.world.height * 0.5 + 78
-    const defaultX = this.world.width * 0.5 - 90
-    this.drawStick(graphics, this.leftStick, -defaultX, defaultY, '#45eaff')
-    this.drawStick(graphics, this.rightStick, defaultX, defaultY, '#ff42d7')
-    graphics.lineWidth = 2
-    graphics.strokeColor = new Color(255, 239, 83, 125)
-    graphics.fillColor = new Color(80, 42, 0, 58)
-    graphics.circle(0, -this.world.height * 0.5 + 58, 28)
-    graphics.fill()
-    graphics.stroke()
+    const scale = this.touchControls.unitsPerPixel
+    const canvasSize = view.getCanvasSize()
+    const bounds = controlBounds(this.world.width, this.world.height, canvasSize.width, canvasSize.height, scale)
+    if (this.touchControls.singleHanded) {
+      const defaultY = -bounds.halfHeight + 92 * scale
+      const heading = this.world.hasFireHeading ? this.world.fireHeading : null
+      this.drawStick(graphics, this.leftStick, 0, defaultY, '#45eaff', heading, scale)
+      return
+    }
+    const defaultY = -bounds.halfHeight + 74 * scale
+    this.drawStick(graphics, this.leftStick, -bounds.halfWidth + 82 * scale, defaultY, '#45eaff', null, scale)
+    this.drawStick(graphics, this.rightStick, bounds.halfWidth - 82 * scale, defaultY, '#ff4fd8', null, scale)
   }
 
-  private drawStick(graphics: Graphics, stick: StickState, defaultX: number, defaultY: number, hex: string): void {
+  private drawStick(graphics: Graphics, stick: StickState, defaultX: number, defaultY: number, hex: string, heading: number | null, scale: number): void {
     const base = stick.active ? stick.base : { x: defaultX, y: defaultY }
     const knob = stick.active ? stick.knob : base
-    graphics.lineWidth = 2
+    if (stick.active && heading !== null) {
+      const sectorRadius = 66 * scale
+      graphics.lineWidth = 1.4 * scale
+      graphics.strokeColor = this.color(hex, 88)
+      graphics.moveTo(base.x, base.y)
+      graphics.lineTo(base.x + Math.cos(heading - AIM_ASSIST_HALF_ANGLE) * sectorRadius, base.y + Math.sin(heading - AIM_ASSIST_HALF_ANGLE) * sectorRadius)
+      graphics.moveTo(base.x, base.y)
+      graphics.lineTo(base.x + Math.cos(heading + AIM_ASSIST_HALF_ANGLE) * sectorRadius, base.y + Math.sin(heading + AIM_ASSIST_HALF_ANGLE) * sectorRadius)
+      graphics.stroke()
+      graphics.arc(base.x, base.y, sectorRadius, heading - AIM_ASSIST_HALF_ANGLE, heading + AIM_ASSIST_HALF_ANGLE, false)
+      graphics.stroke()
+      graphics.strokeColor = this.color(hex, 142)
+      graphics.moveTo(base.x, base.y)
+      graphics.lineTo(base.x + Math.cos(heading) * 58 * scale, base.y + Math.sin(heading) * 58 * scale)
+      graphics.stroke()
+    }
+    graphics.lineWidth = 1.4 * scale
     graphics.strokeColor = this.color(hex, stick.active ? 155 : 58)
     graphics.fillColor = this.color(hex, stick.active ? 28 : 12)
-    graphics.circle(base.x, base.y, 46)
+    graphics.circle(base.x, base.y, 48 * scale)
     graphics.fill()
     graphics.stroke()
     graphics.fillColor = this.color(hex, stick.active ? 82 : 25)
-    graphics.circle(knob.x, knob.y, 16)
+    graphics.circle(knob.x, knob.y, 17 * scale)
     graphics.fill()
     graphics.stroke()
   }
@@ -804,32 +1011,89 @@ export class GeometryFighter extends Component {
   private updateInterface(): void {
     const width = this.world.width
     const height = this.world.height
-    this.scoreLabel.node.setPosition(-width * 0.5 + 30, height * 0.5 - 34)
-    this.scoreLabel.string = `SCORE  ${this.scoreText(this.world.score)}\nHIGH   ${this.scoreText(this.world.highScore)}`
-    this.statusLabel.node.setPosition(0, height * 0.5 - 30)
-    this.statusLabel.string = `×${this.world.multiplier}    ◇ ${this.world.lives}    ✦ ${this.world.bombs}    W${weaponTier(this.world.score)}`
-    this.titleLabel.node.setPosition(0, 82)
-    this.subtitleLabel.node.setPosition(0, -42)
-    this.promptLabel.node.setPosition(0, -116)
-    this.messageLabel.node.setPosition(0, 142)
+    const hudWidth = width - 48
+    const controlScale = this.touchControls.unitsPerPixel
+    const telemetryWidth = Math.min(width * 0.36, 104 * controlScale)
+    this.scoreLabel.fontSize = 14 * controlScale
+    this.scoreLabel.lineHeight = 18 * controlScale
+    this.statusLabel.fontSize = 14 * controlScale
+    this.statusLabel.lineHeight = 18 * controlScale
+    this.assaultLabel.fontSize = 10 * controlScale
+    this.assaultLabel.lineHeight = 13 * controlScale
+    this.setLabelSize(this.scoreLabel, telemetryWidth, 42 * controlScale)
+    this.setLabelSize(this.statusLabel, telemetryWidth, 42 * controlScale)
+    this.setLabelSize(this.assaultLabel, hudWidth, 30 * controlScale)
+    this.setLabelSize(this.subtitleLabel, hudWidth, 100)
+    this.setLabelSize(this.promptLabel, hudWidth, 100)
+    const safeArea = sys.getSafeAreaRect()
+    const safeTop = clamp(height - safeArea.y - safeArea.height, 0, height * 0.25)
+    const hudTop = Math.max(58, safeTop + 54)
+    this.scoreLabel.node.setPosition(-width * 0.31, height * 0.5 - hudTop)
+    this.setLabelText(this.scoreLabel, `SCORE\n${this.scoreText(this.world.score)}`)
+    this.statusLabel.node.setPosition(width * 0.31, height * 0.5 - hudTop)
+    this.setLabelText(this.statusLabel, `HIGH\n${this.scoreText(this.world.highScore)}`)
+    const specialStatus: string[] = []
+    if (this.world.missileTimer > 0) specialStatus.push(`MISSILE ${this.world.missileTimer.toFixed(1)}s`)
+    if (this.world.overloadTimer > 0) specialStatus.push(`OVERDRIVE ${this.world.overloadTimer.toFixed(1)}s`)
+    if (this.world.allies.length > 0) specialStatus.push(`ALLY ×${this.world.allies.length}`)
+    specialStatus.push(this.world.supplies.some((supply) => !supply.dead) ? 'SUPER ACTIVE' : `SUPER ${Math.ceil(this.world.supplyClock)}s`)
+    this.assaultLabel.node.setPosition(0, height * 0.5 - hudTop - 62)
+    this.setLabelText(this.assaultLabel, `A${this.world.wave < 10 ? '0' : ''}${this.world.wave}  ${this.world.assault.label}  ${Math.ceil(this.world.assault.timeLeft)}s   ×${this.world.multiplier}  ◇${this.world.lives}  W${weaponTier(this.world.score)}\n${specialStatus.join('  ')}`)
+    this.titleLabel.node.setPosition(0, height * 0.12)
+    this.subtitleLabel.node.setPosition(0, height * 0.12 - 132)
+    this.promptLabel.node.setPosition(0, -height * 0.18)
+    this.messageLabel.node.setPosition(0, height * 0.5 - Math.max(190, safeTop + 168))
     const showTitle = this.world.state === 'title'
     const showGameOver = this.world.state === 'gameover'
+    const showTelemetry = this.world.state === 'playing' || this.world.state === 'paused'
+    this.scoreLabel.node.active = showTelemetry
+    this.statusLabel.node.active = showTelemetry
+    this.assaultLabel.node.active = showTelemetry
     this.titleLabel.node.active = showTitle || showGameOver
     this.subtitleLabel.node.active = showTitle || showGameOver
-    this.promptLabel.node.active = showTitle || showGameOver || this.world.state === 'paused'
+    this.promptLabel.node.active = showTitle || showGameOver || this.world.state === 'paused' || (this.world.state === 'playing' && this.touchControls.singleHanded && this.world.elapsed < TUTORIAL_DURATION)
     if (showTitle) {
-      this.titleLabel.string = 'GEOMETRY\nFIGHTER'
+      this.subtitleLabel.fontSize = 13 * controlScale
+      this.subtitleLabel.lineHeight = 17 * controlScale
+      this.promptLabel.fontSize = 12 * controlScale
+      this.promptLabel.lineHeight = 16 * controlScale
+      this.promptLabel.color = this.color('#d6ff4f')
+      this.setLabelText(this.titleLabel, 'GEOMETRY\nFIGHTER')
       this.titleLabel.color = new Color(231, 253, 255, 255)
-      this.subtitleLabel.string = '霓虹网格 · 双摇杆生存射击 · 保持倍率'
-      this.promptLabel.string = '触摸屏幕开始  /  TOUCH TO ENGAGE'
+      this.setLabelText(this.subtitleLabel, '竖屏单手 · 方向扇区射击 · 保持倍率')
+      this.setLabelText(this.promptLabel, '单指拖动 · 回中射击 · 扇区命中 · 轻触开始')
     } else if (showGameOver) {
-      this.titleLabel.string = 'GRID\nCOLLAPSED'
+      this.promptLabel.fontSize = 12 * controlScale
+      this.promptLabel.lineHeight = 16 * controlScale
+      this.promptLabel.color = this.color('#d6ff4f')
+      this.setLabelText(this.titleLabel, 'GRID\nCOLLAPSED')
       this.titleLabel.color = new Color(255, 92, 112, 255)
-      this.subtitleLabel.string = `FINAL SCORE  ${this.scoreText(this.world.score)}`
-      this.promptLabel.string = '触摸重新接入网格  /  TOUCH TO RESTART'
+      this.setLabelText(this.subtitleLabel, `FINAL SCORE  ${this.scoreText(this.world.score)}`)
+      this.setLabelText(this.promptLabel, '触摸重新接入网格  /  TOUCH TO RESTART')
     } else if (this.world.state === 'paused') {
-      this.promptLabel.string = 'PAUSED  /  触摸 P 继续'
+      this.promptLabel.fontSize = 14 * controlScale
+      this.promptLabel.lineHeight = 18 * controlScale
+      this.promptLabel.color = this.color('#d6ff4f')
+      this.setLabelText(this.promptLabel, 'PAUSED  /  触摸 P 继续')
+    } else {
+      this.promptLabel.node.setPosition(0, -height * 0.5 + 170 * controlScale)
+      this.promptLabel.fontSize = 13 * controlScale
+      this.promptLabel.lineHeight = 17 * controlScale
+      const tutorialAlpha = this.world.elapsed <= TUTORIAL_HOLD ? 210 : Math.floor(210 * (TUTORIAL_DURATION - this.world.elapsed) / (TUTORIAL_DURATION - TUTORIAL_HOLD))
+      this.promptLabel.color = this.color('#45eaff', tutorialAlpha)
+      this.setLabelText(this.promptLabel, '单指移动 · 回中射击 · 扇区命中')
     }
+  }
+
+  private setLabelText(label: Label, text: string): void {
+    if (label.string !== text) label.string = text
+  }
+
+  private setLabelSize(label: Label, width: number, height: number): void {
+    const transform = label.node.getComponent(UITransform)
+    if (!transform) return
+    const size = transform.contentSize
+    if (size.width !== width || size.height !== height) transform.setContentSize(width, height)
   }
 
   private color(hex: string, alpha = 255): Color {

@@ -5,13 +5,13 @@ class Input {
     this.platform = platform
     this.width = 0
     this.height = 0
+    this.singleHanded = false
     this.move = { x: 0, y: 0 }
     this.aim = { x: 0, y: 0 }
     this.left = this.createStick('move')
     this.right = this.createStick('aim')
     this.keys = {}
     this.startPressed = false
-    this.bombPressed = false
     this.pausePressed = false
     this.firstGesture = false
     this.bind()
@@ -30,11 +30,17 @@ class Input {
   }
 
   resize(width, height) {
+    var wasSingleHanded = this.singleHanded
     this.width = width
     this.height = height
+    this.singleHanded = height >= width
+    if (wasSingleHanded !== this.singleHanded) {
+      this.releaseStick(this.left)
+      this.releaseStick(this.right)
+    }
     if (!this.left.active) {
-      this.left.baseX = 82
-      this.left.baseY = height - 74
+      this.left.baseX = this.singleHanded ? width * 0.5 : 82
+      this.left.baseY = this.singleHanded ? height - 92 : height - 74
       this.left.knobX = this.left.baseX
       this.left.knobY = this.left.baseY
     }
@@ -74,10 +80,8 @@ class Input {
     var touches = event.changedTouches || event.touches || []
     for (var i = 0; i < touches.length; i += 1) {
       var point = this.touchPoint(touches[i])
-      var bombX = this.width * 0.5
-      var bombY = this.height - 40
-      if (math.length(point.x - bombX, point.y - bombY) < 38) {
-        this.bombPressed = true
+      if (this.singleHanded) {
+        if (point.y > this.height * 0.5 && !this.left.active) this.activateStick(this.left, point)
       } else if (point.x < this.width * 0.5 && !this.left.active) {
         this.activateStick(this.left, point)
       } else if (!this.right.active) {
@@ -101,7 +105,7 @@ class Input {
     for (var i = 0; i < touches.length; i += 1) {
       var point = this.touchPoint(touches[i])
       this.moveStick(this.left, point)
-      this.moveStick(this.right, point)
+      if (!this.singleHanded) this.moveStick(this.right, point)
     }
     this.syncVectors()
   }
@@ -142,17 +146,21 @@ class Input {
 
   syncVectors() {
     var leftVector = this.vectorFor(this.left)
-    var rightVector = this.vectorFor(this.right)
     this.move.x = leftVector.x
     this.move.y = leftVector.y
-    this.aim.x = rightVector.x
-    this.aim.y = rightVector.y
+    if (this.singleHanded) {
+      this.aim.x = 0
+      this.aim.y = 0
+    } else {
+      var rightVector = this.vectorFor(this.right)
+      this.aim.x = rightVector.x
+      this.aim.y = rightVector.y
+    }
   }
 
   onKey(event, down) {
     var key = String(event.key || event.code || '').toLowerCase()
     this.keys[key] = down
-    if (down && (key === ' ' || key === 'space' || key === 'spacebar')) this.bombPressed = true
     if (down && (key === 'enter' || key === 'return')) this.startPressed = true
     if (down && (key === 'escape' || key === 'p')) this.pausePressed = true
   }
@@ -177,12 +185,10 @@ class Input {
   consumeActions() {
     var actions = {
       start: this.startPressed,
-      bomb: this.bombPressed,
       pause: this.pausePressed,
       firstGesture: this.firstGesture
     }
     this.startPressed = false
-    this.bombPressed = false
     this.pausePressed = false
     this.firstGesture = false
     return actions
