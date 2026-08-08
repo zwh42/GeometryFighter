@@ -21,7 +21,7 @@ Geometry Fighter is a dark neon arcade instrument: a near-black arena, electrica
 | Role | Token | Value | Usage |
 |---|---|---:|---|
 | Arena | `background` | `#000006` | Primary playfield |
-| Grid | `grid` | `#4a1046` | Sparse resting grid lines |
+| Grid | `grid` | `#2a7190` | Sparse resting grid lines |
 | Grid energy | `gridHot` | `#15d8ff` | Distortion and strong grid feedback |
 | Primary light | `white` | `#ffffff` | Player hull, borders, high-emphasis text |
 | Reward / HUD | `hud` | `#b9ff36` | Score, supply, positive reward |
@@ -65,10 +65,11 @@ Colors are centralized in `js/config.js` for the runtime renderer. Alpha variant
 
 ### Reactive Grid
 
-- **Structure**: star field, warped grid, luminous boundary.
-- **States**: rest, pulse, shockwave, black-hole distortion.
-- **Motion**: simulation-driven deformation; no layout animation.
-- **Accessibility**: boundary remains white and readable without relying on glow.
+- **Structure**: sparse star field, one low-contrast procedural grid pattern, and a luminous boundary. The background never adds an emphasized center axis.
+- **Patterns**: progression cycles through `LATTICE`, `DIAMOND`, `ORBIT`, and `DEPTH`. Each remains a recognizable grid-world surface rather than an illustrated backdrop: orthogonal mesh, diagonal mesh, off-center elliptical field lines, and nested perspective frames.
+- **States**: rest, progression swap, pulse, shockwave, and black-hole distortion. The active pattern index advances on every Assault wave and every weapon-tier upgrade.
+- **Motion**: simulation-driven deformation remains continuous. A new progression pattern fades in over 800 ms so the swap reads as state feedback without flashing behind combat.
+- **Accessibility**: the boundary remains white and readable without relying on glow. Resting pattern opacity stays below enemy fills, telegraphs, projectiles, and HUD strokes so background detail cannot mask a threat.
 
 ### Fighter
 
@@ -126,6 +127,7 @@ Colors are centralized in `js/config.js` for the runtime renderer. Alpha variant
 |---|---:|---|
 | Opening guidance | 3.5 s hold + 1 s fade | Teaches the gesture without permanently covering combat |
 | Assault wave | 15.5 s active + 2.5 s recovery | Alternates pressure profiles while preserving a readable breath between reinforcements |
+| Progression background swap | 800 ms opacity fade | Marks every new Assault wave or weapon tier without adding motion unrelated to game state |
 | Arrival telegraph | 450–550 ms | Announces a grouped edge breach before enemies become collidable |
 | Portrait heading response | 14 s⁻¹, retargetable | Smooths small thumb-angle jitter while preserving fast deliberate turns |
 | Portrait directional fire | continuous while touch is held after movement magnitude > 0.18 once | Remembers the last deliberate heading so center hold becomes a stable fire stance |
