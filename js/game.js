@@ -125,7 +125,7 @@ class GeometryGame {
     this.shockwaves.length = 0
     this.particles.clear()
     this.grid.impulses.length = 0
-    this.spawnTimer = 0.8
+    this.spawnTimer = this.audio.nextBeatDelay(0.8, this.time)
     this.supplyTimer = 12 + this.random() * 6
     this.missileTimer = 0
     this.overloadTimer = 0
@@ -431,13 +431,14 @@ class GeometryGame {
       if (this.assault.phase > 0) {
         this.message = 'ASSAULT ' + this.padWave(this.assault.wave) + ' // ' + this.assault.label
         this.messageTimer = 1.5
-        this.spawnTimer = Math.min(this.spawnTimer, 0.18)
+        this.spawnTimer = this.audio.nextBeatDelay(0.05, this.time)
         this.grid.pulse(this.width * 0.5, this.height * 0.5, 12 + this.assault.phase, config.COLORS.gridHot)
       }
     }
     this.spawnTimer -= dt
     if (!this.assault.active || this.spawnTimer > 0 || this.enemies.length >= difficulty.cap) return
-    this.spawnTimer = difficulty.spawnInterval * math.randomRange(0.76, 1.18)
+    var minimumDelay = difficulty.spawnInterval * math.randomRange(0.76, 1.18)
+    this.spawnTimer = this.audio.nextBeatDelay(minimumDelay, this.time)
     var count = Math.min(difficulty.batch + this.assault.batchBonus, difficulty.cap - this.enemies.length)
     var edge = Math.floor(this.random() * 4)
     var type = this.chooseEnemyType(this.elapsed, this.assault.key)

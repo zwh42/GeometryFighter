@@ -1,4 +1,10 @@
-const MUSIC_TRACKS = ['audio/bgm.mp3', 'audio/grid-pressure.mp3']
+const MUSIC_TRACKS = [
+  { src: 'music/bgm.mp3', bpm: 152, beatOffset: 0 },
+  { src: 'music/grid-pressure.mp3', bpm: 144, beatOffset: 0.372 },
+  { src: 'music/grid-runner-pulse.mp3', bpm: 152, beatOffset: 0.162 },
+  { src: 'music/gravity-coin.mp3', bpm: 144, beatOffset: 0.163 },
+  { src: 'music/gravity-coin-alt.mp3', bpm: 144, beatOffset: 0.233 }
+]
 
 class AudioSystem {
   constructor(platform, random) {
@@ -6,28 +12,54 @@ class AudioSystem {
     this.context = null
     this.music = null
     this.enabled = true
+    this.unlocked = false
+    this.musicReady = !this.platform.loadSubpackage
     this.nextBeat = 0
     this.beatStep = 0
     var randomValue = (random || Math.random)()
     this.musicTrack = MUSIC_TRACKS[Math.floor(randomValue * MUSIC_TRACKS.length)]
-    this.startMusic()
+    this.beatDuration = 60 / this.musicTrack.bpm
+    this.beatOffset = this.musicTrack.beatOffset
+    this.loadMusic()
+  }
+
+  loadMusic() {
+    if (this.musicReady) {
+      this.startMusic()
+      return
+    }
+    var self = this
+    try {
+      this.platform.loadSubpackage({
+        name: 'music',
+        success: function () {
+          self.musicReady = true
+          self.startMusic()
+        }
+      })
+    } catch (error) {
+      this.musicReady = true
+      this.startMusic()
+    }
   }
 
   startMusic() {
-    if (this.music || !this.platform.createInnerAudioContext) return
+    if (this.music || !this.musicReady || !this.platform.createInnerAudioContext) return
     try {
       var music = this.platform.createInnerAudioContext()
       music.loop = true
       music.autoplay = true
       music.volume = 0.24
-      music.src = this.musicTrack
+      music.src = this.musicTrack.src
       this.music = music
+      if (this.unlocked && music.play) music.play()
     } catch (error) {
       this.music = null
     }
   }
 
   unlock() {
+    this.unlocked = true
     this.startMusic()
     if (this.music && this.music.play) this.music.play()
     if (this.context || !this.enabled || !this.platform.createWebAudioContext) return
@@ -80,12 +112,19 @@ class AudioSystem {
     this.tone(440, 0.12, 'square', 0.05, 880)
   }
 
+  nextBeatDelay(minimumDelay, fallbackTime) {
+    var musicTime = this.music && Number.isFinite(this.music.currentTime) ? this.music.currentTime : fallbackTime
+    var targetTime = musicTime + Math.max(0, minimumDelay)
+    var beatNumber = Math.ceil((targetTime - this.beatOffset) / this.beatDuration - 0.000001)
+    return this.beatOffset + beatNumber * this.beatDuration - musicTime
+  }
+
   update(time, active) {
     if (!active || !this.context || time < this.nextBeat) return
     var notes = [55, 55, 82.4, 65.4, 55, 110, 73.4, 82.4]
     this.tone(notes[this.beatStep % notes.length], 0.08, 'square', 0.012, 45)
     this.beatStep += 1
-    this.nextBeat = time + 0.38
+    this.nextBeat = time + this.nextBeatDelay(0.01, time)
   }
 }
 

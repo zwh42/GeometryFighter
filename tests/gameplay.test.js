@@ -289,9 +289,12 @@ test('assault waves pause spawning for recovery and return as a grouped edge bre
   game.elapsed = 18
   game.random = function () { return 0 }
   game.spawnTimer = 0
-  game.updateSpawner(0.2)
+  game.updateSpawner(0)
+  var musicDelay = game.spawnTimer
+  game.updateSpawner(musicDelay)
 
   assert.equal(game.assault.label, 'FLANK')
+  assert.ok(musicDelay > 0)
   assert.ok(game.enemies.length >= 2)
   assert.ok(game.enemies.every(function (enemy) { return enemy.y < 70 }))
 })

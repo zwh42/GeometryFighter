@@ -1,4 +1,10 @@
 {
   "deviceOrientation": "portrait",
-  "showStatusBar": false
+  "showStatusBar": false,
+  "subpackages": [
+    {
+      "name": "music",
+      "root": "music"
+    }
+  ]
 }
