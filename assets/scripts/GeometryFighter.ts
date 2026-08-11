@@ -160,13 +160,10 @@ export class GeometryFighter extends Component {
   private readonly playerTrail: TrailPoint[] = []
   private readonly floatingTexts: FloatingText[] = []
   private readonly stars: Star[] = []
-  private gridGlow!: Graphics
-  private grid!: Graphics
-  private effectGlow!: Graphics
-  private effects!: Graphics
-  private entitiesGlow!: Graphics
-  private entities!: Graphics
-  private controlsGraphics!: Graphics
+  private readonly activeBlackholes: Enemy[] = []
+  private readonly warpedGridPoints: Vector[] = []
+  private readonly colorScratch = new Color()
+  private graphics!: Graphics
   private scoreLabel!: Label
   private statusLabel!: Label
   private titleLabel!: Label
@@ -177,6 +174,10 @@ export class GeometryFighter extends Component {
   private time = 0
   private highScoreClock = 0
   private lastPlayerPosition: Vector = { x: 0, y: 0 }
+  private gridMinimumColumn = 0
+  private gridMaximumColumn = 0
+  private gridMinimumRow = 0
+  private gridMaximumRow = 0
 
   protected override onLoad(): void {
     view.setDesignResolutionSize(1280, 720, ResolutionPolicy.FIXED_HEIGHT)
@@ -242,13 +243,7 @@ export class GeometryFighter extends Component {
   }
 
   private createRenderLayers(): void {
-    this.gridGlow = this.createGraphics('Grid Glow')
-    this.grid = this.createGraphics('Grid')
-    this.effectGlow = this.createGraphics('Effect Glow')
-    this.effects = this.createGraphics('Effects')
-    this.entitiesGlow = this.createGraphics('Entity Glow')
-    this.entities = this.createGraphics('Entities')
-    this.controlsGraphics = this.createGraphics('Controls')
+    this.graphics = this.createGraphics('Game Graphics')
   }
 
   private createGraphics(name: string): Graphics {
@@ -476,6 +471,7 @@ export class GeometryFighter extends Component {
   }
 
   private updateVisualState(dt: number): void {
+    let particleCount = 0
     for (const particle of this.particles) {
       particle.x += particle.vx * dt
       particle.y += particle.vy * dt
@@ -483,28 +479,36 @@ export class GeometryFighter extends Component {
       particle.vx *= drag
       particle.vy *= drag
       particle.life -= dt
+      if (particle.life <= 0) continue
+      this.particles[particleCount] = particle
+      particleCount += 1
     }
-    for (let index = this.particles.length - 1; index >= 0; index -= 1) {
-      if (this.particles[index].life <= 0) this.particles.splice(index, 1)
-    }
+    this.particles.length = particleCount
+
+    let rippleCount = 0
     for (const ripple of this.ripples) {
       ripple.radius += ripple.speed * dt
       ripple.life -= dt
+      if (ripple.life <= 0) continue
+      this.ripples[rippleCount] = ripple
+      rippleCount += 1
     }
-    for (let index = this.ripples.length - 1; index >= 0; index -= 1) {
-      if (this.ripples[index].life <= 0) this.ripples.splice(index, 1)
-    }
+    this.ripples.length = rippleCount
+
+    let textCount = 0
     for (const text of this.floatingTexts) {
       text.y += 30 * dt
       text.life -= dt
+      if (text.life <= 0) continue
+      this.floatingTexts[textCount] = text
+      textCount += 1
     }
-    for (let index = this.floatingTexts.length - 1; index >= 0; index -= 1) {
-      if (this.floatingTexts[index].life <= 0) this.floatingTexts.splice(index, 1)
-    }
+    this.floatingTexts.length = textCount
     if (this.world.player.alive && this.world.state === 'playing') {
       const moved = length(this.world.player.x - this.lastPlayerPosition.x, this.world.player.y - this.lastPlayerPosition.y)
       if (moved > 2) this.playerTrail.push({ x: this.world.player.x, y: this.world.player.y, life: 0.34 })
-      this.lastPlayerPosition = { x: this.world.player.x, y: this.world.player.y }
+      this.lastPlayerPosition.x = this.world.player.x
+      this.lastPlayerPosition.y = this.world.player.y
     }
     for (const point of this.playerTrail) point.life -= dt
     while (this.playerTrail.length > 30 || this.playerTrail[0]?.life <= 0) this.playerTrail.shift()
@@ -513,76 +517,107 @@ export class GeometryFighter extends Component {
   }
 
   private render(): void {
-    this.renderGrid()
-    this.renderEffects()
-    this.renderEntities()
-    this.renderControls()
+    this.graphics.clear()
+    this.renderGrid(this.graphics)
+    this.renderEffects(this.graphics)
+    this.renderEntities(this.graphics)
+    this.renderControls(this.graphics)
   }
 
-  private renderGrid(): void {
-    const glow = this.gridGlow
-    const sharp = this.grid
-    glow.clear()
-    sharp.clear()
+  private renderGrid(graphics: Graphics): void {
     const width = this.world.width
     const height = this.world.height
-    glow.fillColor = new Color(0, 2, 13, 255)
-    glow.rect(-width * 0.5, -height * 0.5, width, height)
-    glow.fill()
+    graphics.fillColor = this.rgb(0, 2, 13, 255)
+    graphics.rect(-width * 0.5, -height * 0.5, width, height)
+    graphics.fill()
+    this.prepareWarpedGrid(42)
+    this.drawGridLines(graphics, 7, 0, 91, 156, 23)
+    graphics.lineWidth = 14
+    graphics.strokeColor = this.rgb(69, 191, 255, 44)
+    graphics.rect(-width * 0.5 + 8, -height * 0.5 + 8, width - 16, height - 16)
+    graphics.stroke()
     for (const star of this.stars) {
       const alpha = 32 + Math.floor((Math.sin(this.time * 1.8 + star.phase) * 0.5 + 0.5) * 70)
-      sharp.fillColor = new Color(63, 137, 190, alpha)
-      sharp.circle(star.x * width, star.y * height, star.size)
-      sharp.fill()
+      graphics.fillColor = this.rgb(63, 137, 190, alpha)
+      graphics.circle(star.x * width, star.y * height, star.size)
+      graphics.fill()
     }
-    const spacing = 42
-    this.drawGridLines(glow, spacing, 7, new Color(0, 91, 156, 23))
-    this.drawGridLines(sharp, spacing, 1.15, new Color(21, 149, 221, 72))
-    glow.lineWidth = 14
-    glow.strokeColor = new Color(69, 191, 255, 44)
-    glow.rect(-width * 0.5 + 8, -height * 0.5 + 8, width - 16, height - 16)
-    glow.stroke()
-    sharp.lineWidth = 2.2
-    sharp.strokeColor = new Color(218, 250, 255, 230)
-    sharp.rect(-width * 0.5 + 8, -height * 0.5 + 8, width - 16, height - 16)
-    sharp.stroke()
+    this.drawGridLines(graphics, 1.15, 21, 149, 221, 72)
+    graphics.lineWidth = 2.2
+    graphics.strokeColor = this.rgb(218, 250, 255, 230)
+    graphics.rect(-width * 0.5 + 8, -height * 0.5 + 8, width - 16, height - 16)
+    graphics.stroke()
   }
 
-  private drawGridLines(graphics: Graphics, spacing: number, lineWidth: number, color: Color): void {
-    const halfWidth = this.world.width * 0.5
-    const halfHeight = this.world.height * 0.5
+  private prepareWarpedGrid(spacing: number): void {
     const columns = Math.ceil(this.world.width / spacing) + 2
     const rows = Math.ceil(this.world.height / spacing) + 2
-    graphics.lineWidth = lineWidth
-    graphics.strokeColor = color
-    for (let column = -Math.floor(columns / 2); column <= Math.ceil(columns / 2); column += 1) {
-      const x = column * spacing
-      for (let row = -Math.floor(rows / 2); row <= Math.ceil(rows / 2); row += 1) {
-        const y = row * spacing
-        const point = this.warpPoint(x, y)
-        if (row === -Math.floor(rows / 2)) graphics.moveTo(point.x, point.y)
-        else graphics.lineTo(point.x, point.y)
+    this.gridMinimumColumn = -Math.floor(columns / 2)
+    this.gridMaximumColumn = Math.ceil(columns / 2)
+    this.gridMinimumRow = -Math.floor(rows / 2)
+    this.gridMaximumRow = Math.ceil(rows / 2)
+    this.activeBlackholes.length = 0
+    for (const enemy of this.world.enemies) {
+      if (!enemy.dead && enemy.kind === 'blackhole') this.activeBlackholes.push(enemy)
+    }
+
+    let pointIndex = 0
+    for (let column = this.gridMinimumColumn; column <= this.gridMaximumColumn; column += 1) {
+      for (let row = this.gridMinimumRow; row <= this.gridMaximumRow; row += 1) {
+        let point = this.warpedGridPoints[pointIndex]
+        if (!point) {
+          point = { x: 0, y: 0 }
+          this.warpedGridPoints.push(point)
+        }
+        this.warpPoint(column * spacing, row * spacing, point)
+        pointIndex += 1
       }
     }
-    for (let row = -Math.floor(rows / 2); row <= Math.ceil(rows / 2); row += 1) {
-      const y = row * spacing
-      for (let column = -Math.floor(columns / 2); column <= Math.ceil(columns / 2); column += 1) {
-        const x = column * spacing
-        const point = this.warpPoint(x, y)
-        if (column === -Math.floor(columns / 2)) graphics.moveTo(point.x, point.y)
+    for (let row = this.gridMinimumRow; row <= this.gridMaximumRow; row += 1) {
+      for (let column = this.gridMinimumColumn; column <= this.gridMaximumColumn; column += 1) {
+        let point = this.warpedGridPoints[pointIndex]
+        if (!point) {
+          point = { x: 0, y: 0 }
+          this.warpedGridPoints.push(point)
+        }
+        this.warpPoint(column * spacing, row * spacing, point)
+        pointIndex += 1
+      }
+    }
+  }
+
+  private drawGridLines(graphics: Graphics, lineWidth: number, red: number, green: number, blue: number, alpha: number): void {
+    const halfWidth = this.world.width * 0.5
+    const halfHeight = this.world.height * 0.5
+    graphics.lineWidth = lineWidth
+    graphics.strokeColor = this.rgb(red, green, blue, alpha)
+    let pointIndex = 0
+    for (let column = this.gridMinimumColumn; column <= this.gridMaximumColumn; column += 1) {
+      for (let row = this.gridMinimumRow; row <= this.gridMaximumRow; row += 1) {
+        const point = this.warpedGridPoints[pointIndex]
+        if (row === this.gridMinimumRow) graphics.moveTo(point.x, point.y)
         else graphics.lineTo(point.x, point.y)
+        pointIndex += 1
+      }
+    }
+    for (let row = this.gridMinimumRow; row <= this.gridMaximumRow; row += 1) {
+      for (let column = this.gridMinimumColumn; column <= this.gridMaximumColumn; column += 1) {
+        const point = this.warpedGridPoints[pointIndex]
+        if (column === this.gridMinimumColumn) graphics.moveTo(point.x, point.y)
+        else graphics.lineTo(point.x, point.y)
+        pointIndex += 1
       }
     }
     graphics.stroke()
     graphics.lineWidth = lineWidth * 0.8
-    graphics.strokeColor = new Color(color.r, color.g, color.b, Math.min(255, color.a * 1.35))
+    graphics.strokeColor = this.rgb(red, green, blue, Math.min(255, alpha * 1.35))
     graphics.rect(-halfWidth, -halfHeight, this.world.width, this.world.height)
     graphics.stroke()
   }
 
-  private warpPoint(x: number, y: number): Vector {
-    let warpedX = x
-    let warpedY = y
+  private warpPoint(x: number, y: number, output: Vector): void {
+    output.x = x
+    output.y = y
     for (const ripple of this.ripples) {
       const dx = x - ripple.x
       const dy = y - ripple.y
@@ -591,116 +626,116 @@ export class GeometryFighter extends Component {
       if (band < 90) {
         const fade = ripple.life / ripple.maxLife
         const force = Math.sin((1 - band / 90) * Math.PI) * ripple.strength * fade
-        warpedX += dx / distance * force
-        warpedY += dy / distance * force
+        output.x += dx / distance * force
+        output.y += dy / distance * force
       }
     }
-    for (const enemy of this.world.enemies) {
-      if (enemy.dead || enemy.kind !== 'blackhole') continue
+    for (const enemy of this.activeBlackholes) {
       const dx = enemy.x - x
       const dy = enemy.y - y
       const distance = Math.max(20, length(dx, dy))
       if (distance < 290) {
         const force = (1 - distance / 290) * 38 * enemy.mass
-        warpedX += dx / distance * force
-        warpedY += dy / distance * force
+        output.x += dx / distance * force
+        output.y += dy / distance * force
       }
     }
-    return { x: warpedX, y: warpedY }
   }
 
-  private renderEffects(): void {
-    const glow = this.effectGlow
-    const sharp = this.effects
-    glow.clear()
-    sharp.clear()
+  private renderEffects(graphics: Graphics): void {
     for (const point of this.playerTrail) {
       const alpha = clamp(point.life / 0.34, 0, 1)
-      glow.fillColor = new Color(70, 239, 255, Math.floor(alpha * 55))
-      glow.circle(point.x, point.y, 10 * alpha)
-      glow.fill()
+      graphics.fillColor = this.rgb(70, 239, 255, Math.floor(alpha * 55))
+      graphics.circle(point.x, point.y, 10 * alpha)
+      graphics.fill()
     }
     for (const particle of this.particles) {
       const alpha = clamp(particle.life / particle.maxLife, 0, 1)
-      const color = this.color(particle.color, Math.floor(alpha * 210))
       const tailScale = 0.035
-      glow.lineWidth = particle.size * 3.2
-      glow.strokeColor = this.color(particle.color, Math.floor(alpha * 42))
-      glow.moveTo(particle.x, particle.y)
-      glow.lineTo(particle.x - particle.vx * tailScale, particle.y - particle.vy * tailScale)
-      glow.stroke()
-      sharp.lineWidth = Math.max(1, particle.size * alpha)
-      sharp.strokeColor = color
-      sharp.moveTo(particle.x, particle.y)
-      sharp.lineTo(particle.x - particle.vx * tailScale, particle.y - particle.vy * tailScale)
-      sharp.stroke()
+      graphics.lineWidth = particle.size * 3.2
+      graphics.strokeColor = this.color(particle.color, Math.floor(alpha * 42))
+      graphics.moveTo(particle.x, particle.y)
+      graphics.lineTo(particle.x - particle.vx * tailScale, particle.y - particle.vy * tailScale)
+      graphics.stroke()
     }
     for (const ripple of this.ripples) {
       const alpha = clamp(ripple.life / ripple.maxLife, 0, 1)
-      glow.lineWidth = 16 * alpha
-      glow.strokeColor = this.color(ripple.color, Math.floor(alpha * 70))
-      glow.circle(ripple.x, ripple.y, ripple.radius)
-      glow.stroke()
-      sharp.lineWidth = 2.4
-      sharp.strokeColor = this.color(ripple.color, Math.floor(alpha * 230))
-      sharp.circle(ripple.x, ripple.y, ripple.radius)
-      sharp.stroke()
+      graphics.lineWidth = 16 * alpha
+      graphics.strokeColor = this.color(ripple.color, Math.floor(alpha * 70))
+      graphics.circle(ripple.x, ripple.y, ripple.radius)
+      graphics.stroke()
     }
-    for (const bullet of this.world.bullets) this.drawBullet(glow, sharp, bullet)
+    for (const bullet of this.world.bullets) this.drawBullet(graphics, bullet, true)
+    for (const particle of this.particles) {
+      const alpha = clamp(particle.life / particle.maxLife, 0, 1)
+      const tailScale = 0.035
+      graphics.lineWidth = Math.max(1, particle.size * alpha)
+      graphics.strokeColor = this.color(particle.color, Math.floor(alpha * 210))
+      graphics.moveTo(particle.x, particle.y)
+      graphics.lineTo(particle.x - particle.vx * tailScale, particle.y - particle.vy * tailScale)
+      graphics.stroke()
+    }
+    for (const ripple of this.ripples) {
+      const alpha = clamp(ripple.life / ripple.maxLife, 0, 1)
+      graphics.lineWidth = 2.4
+      graphics.strokeColor = this.color(ripple.color, Math.floor(alpha * 230))
+      graphics.circle(ripple.x, ripple.y, ripple.radius)
+      graphics.stroke()
+    }
+    for (const bullet of this.world.bullets) this.drawBullet(graphics, bullet, false)
   }
 
-  private drawBullet(glow: Graphics, sharp: Graphics, bullet: Bullet): void {
+  private drawBullet(graphics: Graphics, bullet: Bullet, glow: boolean): void {
     const tail = 20
     const x2 = bullet.x - Math.cos(bullet.angle) * tail
     const y2 = bullet.y - Math.sin(bullet.angle) * tail
-    glow.lineWidth = 12
-    glow.strokeColor = new Color(255, 239, 73, 55)
-    glow.moveTo(bullet.x, bullet.y)
-    glow.lineTo(x2, y2)
-    glow.stroke()
-    sharp.lineWidth = 2.8
-    sharp.strokeColor = new Color(255, 253, 215, 255)
-    sharp.moveTo(bullet.x, bullet.y)
-    sharp.lineTo(x2, y2)
-    sharp.stroke()
+    graphics.lineWidth = glow ? 12 : 2.8
+    graphics.strokeColor = glow ? this.rgb(255, 239, 73, 55) : this.rgb(255, 253, 215, 255)
+    graphics.moveTo(bullet.x, bullet.y)
+    graphics.lineTo(x2, y2)
+    graphics.stroke()
   }
 
-  private renderEntities(): void {
-    this.entitiesGlow.clear()
-    this.entities.clear()
+  private renderEntities(graphics: Graphics): void {
     for (const enemy of this.world.enemies) {
       if (enemy.dead) continue
       const spawnAlpha = enemy.spawnTimer > 0 ? 1 - enemy.spawnTimer / 0.45 : 1
-      this.drawEnemy(this.entitiesGlow, enemy, true, spawnAlpha)
-      this.drawEnemy(this.entities, enemy, false, spawnAlpha)
+      this.drawEnemy(graphics, enemy, true, spawnAlpha)
     }
     if (this.world.player.alive) {
       const flicker = this.world.player.invulnerable > 0 && Math.floor(this.time * 14) % 2 === 0
-      if (!flicker) {
-        this.drawPlayer(this.entitiesGlow, true)
-        this.drawPlayer(this.entities, false)
-      }
+      if (!flicker) this.drawPlayer(graphics, true)
+    }
+    for (const enemy of this.world.enemies) {
+      if (enemy.dead) continue
+      const spawnAlpha = enemy.spawnTimer > 0 ? 1 - enemy.spawnTimer / 0.45 : 1
+      this.drawEnemy(graphics, enemy, false, spawnAlpha)
+    }
+    if (this.world.player.alive) {
+      const flicker = this.world.player.invulnerable > 0 && Math.floor(this.time * 14) % 2 === 0
+      if (!flicker) this.drawPlayer(graphics, false)
     }
   }
 
   private drawPlayer(graphics: Graphics, glow: boolean): void {
     const player = this.world.player
-    const color = glow ? new Color(92, 235, 255, 66) : new Color(232, 255, 255, 255)
     graphics.lineWidth = glow ? 13 : 2.6
-    graphics.strokeColor = color
-    const forward = { x: Math.cos(player.angle), y: Math.sin(player.angle) }
-    const side = { x: -forward.y, y: forward.x }
-    graphics.moveTo(player.x + forward.x * 19, player.y + forward.y * 19)
-    graphics.lineTo(player.x - forward.x * 12 + side.x * 11, player.y - forward.y * 12 + side.y * 11)
-    graphics.lineTo(player.x - forward.x * 6, player.y - forward.y * 6)
-    graphics.lineTo(player.x - forward.x * 12 - side.x * 11, player.y - forward.y * 12 - side.y * 11)
+    graphics.strokeColor = glow ? this.rgb(92, 235, 255, 66) : this.rgb(232, 255, 255, 255)
+    const forwardX = Math.cos(player.angle)
+    const forwardY = Math.sin(player.angle)
+    const sideX = -forwardY
+    const sideY = forwardX
+    graphics.moveTo(player.x + forwardX * 19, player.y + forwardY * 19)
+    graphics.lineTo(player.x - forwardX * 12 + sideX * 11, player.y - forwardY * 12 + sideY * 11)
+    graphics.lineTo(player.x - forwardX * 6, player.y - forwardY * 6)
+    graphics.lineTo(player.x - forwardX * 12 - sideX * 11, player.y - forwardY * 12 - sideY * 11)
     graphics.close()
     graphics.stroke()
     if (!glow) {
-      graphics.strokeColor = new Color(93, 255, 186, 255)
-      graphics.moveTo(player.x - forward.x * 8 + side.x * 5, player.y - forward.y * 8 + side.y * 5)
-      graphics.lineTo(player.x - forward.x * 18, player.y - forward.y * 18)
-      graphics.lineTo(player.x - forward.x * 8 - side.x * 5, player.y - forward.y * 8 - side.y * 5)
+      graphics.strokeColor = this.rgb(93, 255, 186, 255)
+      graphics.moveTo(player.x - forwardX * 8 + sideX * 5, player.y - forwardY * 8 + sideY * 5)
+      graphics.lineTo(player.x - forwardX * 18, player.y - forwardY * 18)
+      graphics.lineTo(player.x - forwardX * 8 - sideX * 5, player.y - forwardY * 8 - sideY * 5)
       graphics.stroke()
     }
   }
@@ -748,9 +783,9 @@ export class GeometryFighter extends Component {
       graphics.stroke()
       graphics.circle(enemy.x, enemy.y, enemy.radius * 0.63)
       if (!glow) {
-        graphics.fillColor = new Color(0, 0, 5, 235)
+        graphics.fillColor = this.rgb(0, 0, 5, 235)
         graphics.fill()
-        graphics.strokeColor = new Color(255, 205, 94, 230)
+        graphics.strokeColor = this.rgb(255, 205, 94, 230)
         graphics.circle(enemy.x, enemy.y, enemy.radius * 1.22 + pulse)
         graphics.stroke()
       }
@@ -770,33 +805,33 @@ export class GeometryFighter extends Component {
     graphics.stroke()
   }
 
-  private renderControls(): void {
-    const graphics = this.controlsGraphics
-    graphics.clear()
+  private renderControls(graphics: Graphics): void {
     if (this.world.state !== 'playing') return
     const defaultY = -this.world.height * 0.5 + 78
     const defaultX = this.world.width * 0.5 - 90
     this.drawStick(graphics, this.leftStick, -defaultX, defaultY, '#45eaff')
     this.drawStick(graphics, this.rightStick, defaultX, defaultY, '#ff42d7')
     graphics.lineWidth = 2
-    graphics.strokeColor = new Color(255, 239, 83, 125)
-    graphics.fillColor = new Color(80, 42, 0, 58)
+    graphics.strokeColor = this.rgb(255, 239, 83, 125)
+    graphics.fillColor = this.rgb(80, 42, 0, 58)
     graphics.circle(0, -this.world.height * 0.5 + 58, 28)
     graphics.fill()
     graphics.stroke()
   }
 
   private drawStick(graphics: Graphics, stick: StickState, defaultX: number, defaultY: number, hex: string): void {
-    const base = stick.active ? stick.base : { x: defaultX, y: defaultY }
-    const knob = stick.active ? stick.knob : base
+    const baseX = stick.active ? stick.base.x : defaultX
+    const baseY = stick.active ? stick.base.y : defaultY
+    const knobX = stick.active ? stick.knob.x : baseX
+    const knobY = stick.active ? stick.knob.y : baseY
     graphics.lineWidth = 2
     graphics.strokeColor = this.color(hex, stick.active ? 155 : 58)
     graphics.fillColor = this.color(hex, stick.active ? 28 : 12)
-    graphics.circle(base.x, base.y, 46)
+    graphics.circle(baseX, baseY, 46)
     graphics.fill()
     graphics.stroke()
     graphics.fillColor = this.color(hex, stick.active ? 82 : 25)
-    graphics.circle(knob.x, knob.y, 16)
+    graphics.circle(knobX, knobY, 16)
     graphics.fill()
     graphics.stroke()
   }
@@ -805,9 +840,9 @@ export class GeometryFighter extends Component {
     const width = this.world.width
     const height = this.world.height
     this.scoreLabel.node.setPosition(-width * 0.5 + 30, height * 0.5 - 34)
-    this.scoreLabel.string = `SCORE  ${this.scoreText(this.world.score)}\nHIGH   ${this.scoreText(this.world.highScore)}`
+    this.setLabelText(this.scoreLabel, `SCORE  ${this.scoreText(this.world.score)}\nHIGH   ${this.scoreText(this.world.highScore)}`)
     this.statusLabel.node.setPosition(0, height * 0.5 - 30)
-    this.statusLabel.string = `×${this.world.multiplier}    ◇ ${this.world.lives}    ✦ ${this.world.bombs}    W${weaponTier(this.world.score)}`
+    this.setLabelText(this.statusLabel, `×${this.world.multiplier}    ◇ ${this.world.lives}    ✦ ${this.world.bombs}    W${weaponTier(this.world.score)}`)
     this.titleLabel.node.setPosition(0, 82)
     this.subtitleLabel.node.setPosition(0, -42)
     this.promptLabel.node.setPosition(0, -116)
@@ -818,24 +853,32 @@ export class GeometryFighter extends Component {
     this.subtitleLabel.node.active = showTitle || showGameOver
     this.promptLabel.node.active = showTitle || showGameOver || this.world.state === 'paused'
     if (showTitle) {
-      this.titleLabel.string = 'GEOMETRY\nFIGHTER'
-      this.titleLabel.color = new Color(231, 253, 255, 255)
-      this.subtitleLabel.string = '霓虹网格 · 双摇杆生存射击 · 保持倍率'
-      this.promptLabel.string = '触摸屏幕开始  /  TOUCH TO ENGAGE'
+      this.setLabelText(this.titleLabel, 'GEOMETRY\nFIGHTER')
+      this.titleLabel.color = this.rgb(231, 253, 255, 255)
+      this.setLabelText(this.subtitleLabel, '霓虹网格 · 双摇杆生存射击 · 保持倍率')
+      this.setLabelText(this.promptLabel, '触摸屏幕开始  /  TOUCH TO ENGAGE')
     } else if (showGameOver) {
-      this.titleLabel.string = 'GRID\nCOLLAPSED'
-      this.titleLabel.color = new Color(255, 92, 112, 255)
-      this.subtitleLabel.string = `FINAL SCORE  ${this.scoreText(this.world.score)}`
-      this.promptLabel.string = '触摸重新接入网格  /  TOUCH TO RESTART'
+      this.setLabelText(this.titleLabel, 'GRID\nCOLLAPSED')
+      this.titleLabel.color = this.rgb(255, 92, 112, 255)
+      this.setLabelText(this.subtitleLabel, `FINAL SCORE  ${this.scoreText(this.world.score)}`)
+      this.setLabelText(this.promptLabel, '触摸重新接入网格  /  TOUCH TO RESTART')
     } else if (this.world.state === 'paused') {
-      this.promptLabel.string = 'PAUSED  /  触摸 P 继续'
+      this.setLabelText(this.promptLabel, 'PAUSED  /  触摸 P 继续')
     }
+  }
+
+  private setLabelText(label: Label, value: string): void {
+    if (label.string !== value) label.string = value
+  }
+
+  private rgb(red: number, green: number, blue: number, alpha: number): Color {
+    return this.colorScratch.set(red, green, blue, clamp(alpha, 0, 255))
   }
 
   private color(hex: string, alpha = 255): Color {
     const value = hex.startsWith('#') ? hex.slice(1) : hex
     const number = Number.parseInt(value, 16)
-    return new Color((number >> 16) & 255, (number >> 8) & 255, number & 255, clamp(alpha, 0, 255))
+    return this.rgb((number >> 16) & 255, (number >> 8) & 255, number & 255, alpha)
   }
 
   private scoreText(value: number): string {

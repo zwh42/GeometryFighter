@@ -84,18 +84,29 @@ const ENEMY_RADIUS: Record<EnemyKind, number> = {
   blackhole: 26
 }
 
+const BOMB_KILL_EVENT_LIMIT = 6
+const MAX_LIVE_ENEMIES = 100
+const AIM_ASSIST_RANGE_SQUARED = 900 * 900
+const AIM_ASSIST_CONE_TANGENT = Math.tan(Math.PI * 14 / 180)
+const BULLET_HIT_FORGIVENESS = 4
+
 export function clamp(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(high, value))
 }
 
 export function length(x: number, y: number): number {
-  return Math.hypot(x, y)
+  return Math.sqrt(x * x + y * y)
 }
 
 export function normalized(x: number, y: number): Vector {
+  return normalizeInto(x, y, { x: 0, y: 0 })
+}
+
+export function normalizeInto(x: number, y: number, output: Vector): Vector {
   const size = length(x, y)
-  if (size < 0.0001) return { x: 0, y: 0 }
-  return { x: x / size, y: y / size }
+  output.x = size < 0.0001 ? 0 : x / size
+  output.y = size < 0.0001 ? 0 : y / size
+  return output
 }
 
 export function weaponTier(score: number): number {
@@ -105,6 +116,7 @@ export function weaponTier(score: number): number {
   return 1
 }
 
+// allow: SIZE_OK — deterministic world state stays contiguous so frame-step ordering remains auditable.
 export class GeometryWorld {
   width = 1280
   height = 720
@@ -126,6 +138,7 @@ export class GeometryWorld {
   bullets: Bullet[] = []
   enemies: Enemy[] = []
   events: WorldEvent[] = []
+  private readonly normalizationScratch: Vector = { x: 0, y: 0 }
 
   resize(width: number, height: number): void {
     this.width = Math.max(640, width)
@@ -243,8 +256,29 @@ export class GeometryWorld {
   fire(angle: number): void {
     const tier = weaponTier(this.score)
     const patterns = tier === 1 ? [0] : tier === 2 ? [-0.055, 0.055] : tier === 3 ? [-0.105, 0, 0.105] : [-0.17, -0.08, 0, 0.08, 0.17]
+    const aimX = Math.cos(angle)
+    const aimY = Math.sin(angle)
+    let firingAngle = angle
+    let bestAlignment = -1
+    let bestDistanceSquared = Number.POSITIVE_INFINITY
+    for (const enemy of this.enemies) {
+      if (enemy.dead || enemy.spawnTimer > 0) continue
+      const dx = enemy.x - this.player.x
+      const dy = enemy.y - this.player.y
+      const distanceSquared = dx * dx + dy * dy
+      if (distanceSquared > AIM_ASSIST_RANGE_SQUARED) continue
+      const forwardDistance = dx * aimX + dy * aimY
+      if (forwardDistance <= 0) continue
+      const sideDistance = Math.abs(dx * aimY - dy * aimX)
+      if (sideDistance > forwardDistance * AIM_ASSIST_CONE_TANGENT) continue
+      const alignment = forwardDistance * forwardDistance / distanceSquared
+      if (alignment < bestAlignment || (alignment === bestAlignment && distanceSquared >= bestDistanceSquared)) continue
+      firingAngle = Math.atan2(dy, dx)
+      bestAlignment = alignment
+      bestDistanceSquared = distanceSquared
+    }
     for (const offset of patterns) {
-      const shotAngle = angle + offset
+      const shotAngle = firingAngle + offset
       const dx = Math.cos(shotAngle)
       const dy = Math.sin(shotAngle)
       this.bullets.push({
@@ -292,7 +326,7 @@ export class GeometryWorld {
 
       const dx = player.x - enemy.x
       const dy = player.y - enemy.y
-      const direction = normalized(dx, dy)
+      const direction = normalizeInto(dx, dy, this.normalizationScratch)
       let targetX = direction.x
       let targetY = direction.y
 
@@ -321,7 +355,7 @@ export class GeometryWorld {
         this.applyBlackhole(enemy, dt)
       }
 
-      const steer = normalized(targetX, targetY)
+      const steer = normalizeInto(targetX, targetY, this.normalizationScratch)
       const response = enemy.kind === 'grunt' ? 5.2 : 2.8
       enemy.vx += (steer.x * enemy.speed - enemy.vx) * response * dt
       enemy.vy += (steer.y * enemy.speed - enemy.vy) * response * dt
@@ -385,7 +419,7 @@ export class GeometryWorld {
       if (bullet.life <= 0) continue
       for (const enemy of this.enemies) {
         if (enemy.dead || enemy.spawnTimer > 0) continue
-        const hitRadius = enemy.radius + bullet.radius
+        const hitRadius = enemy.radius + bullet.radius + BULLET_HIT_FORGIVENESS
         const dx = bullet.x - enemy.x
         const dy = bullet.y - enemy.y
         if (dx * dx + dy * dy > hitRadius * hitRadius) continue
@@ -409,14 +443,14 @@ export class GeometryWorld {
     }
   }
 
-  killEnemy(enemy: Enemy): void {
+  killEnemy(enemy: Enemy, emitPresentation = true): void {
     enemy.dead = true
     const gained = enemy.value * this.multiplier
     this.score += gained
     this.highScore = Math.max(this.highScore, this.score)
     this.kills += 1
     this.multiplier = Math.min(10, 1 + Math.floor(this.kills / 10))
-    this.pushEvent('kill', enemy.x, enemy.y, this.enemyColor(enemy.kind), gained, `+${gained}`)
+    if (emitPresentation) this.pushEvent('kill', enemy.x, enemy.y, this.enemyColor(enemy.kind), gained, `+${gained}`)
     while (this.score >= this.nextLife) {
       this.lives += 1
       this.nextLife += 75000
@@ -442,15 +476,20 @@ export class GeometryWorld {
   useBomb(): void {
     if (this.bombs <= 0 || !this.player.alive) return
     this.bombs -= 1
+    let presentationEvents = 0
     for (const enemy of this.enemies) {
       if (enemy.dead) continue
       if (enemy.kind === 'blackhole') {
         enemy.health -= 5
         enemy.mass *= 0.7
         enemy.radius = Math.max(22, enemy.radius * 0.7)
-        if (enemy.health <= 0) this.killEnemy(enemy)
+        if (enemy.health <= 0) {
+          this.killEnemy(enemy, presentationEvents < BOMB_KILL_EVENT_LIMIT)
+          presentationEvents += 1
+        }
       } else {
-        this.killEnemy(enemy)
+        this.killEnemy(enemy, presentationEvents < BOMB_KILL_EVENT_LIMIT)
+        presentationEvents += 1
       }
     }
     this.pushEvent('bomb', this.player.x, this.player.y, '#d9fbff', 1, 'SMART BOMB')
@@ -462,7 +501,7 @@ export class GeometryWorld {
       this.wave = nextWave
       this.pushEvent('wave', 0, 88, '#6ffcff', this.wave, `GRID LEVEL ${this.wave}`)
     }
-    const cap = Math.min(90, 24 + this.wave * 4)
+    const cap = Math.min(MAX_LIVE_ENEMIES, 24 + this.wave * 4)
     const living = this.enemies.reduce((count, enemy) => count + (enemy.dead ? 0 : 1), 0)
     const batch = Math.min(7, 1 + Math.floor(this.elapsed / 32))
     for (let index = 0; index < batch && living + index < cap; index += 1) this.spawnEnemy(this.pickEnemy())
@@ -541,8 +580,21 @@ export class GeometryWorld {
   }
 
   cleanup(): void {
-    this.bullets = this.bullets.filter((bullet) => bullet.life > 0)
-    this.enemies = this.enemies.filter((enemy) => !enemy.dead && Math.abs(enemy.x) < this.width * 0.72 && Math.abs(enemy.y) < this.height * 0.78)
+    let bulletCount = 0
+    for (const bullet of this.bullets) {
+      if (bullet.life <= 0) continue
+      this.bullets[bulletCount] = bullet
+      bulletCount += 1
+    }
+    this.bullets.length = bulletCount
+
+    let enemyCount = 0
+    for (const enemy of this.enemies) {
+      if (enemy.dead || Math.abs(enemy.x) >= this.width * 0.72 || Math.abs(enemy.y) >= this.height * 0.78) continue
+      this.enemies[enemyCount] = enemy
+      enemyCount += 1
+    }
+    this.enemies.length = enemyCount
   }
 
   pushEvent(kind: WorldEventKind, x: number, y: number, color: string, amount: number, text: string): void {
