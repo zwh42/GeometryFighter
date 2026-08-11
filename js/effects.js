@@ -4,23 +4,38 @@ const config = require('./config')
 class ParticleSystem {
   constructor() {
     this.items = []
+    this.pool = []
+    this.replaceCursor = 0
+  }
+
+  clear() {
+    for (var i = 0; i < this.items.length; i += 1) this.pool.push(this.items[i])
+    this.items.length = 0
+    this.replaceCursor = 0
   }
 
   add(x, y, vx, vy, color, life, width, drag) {
-    if (this.items.length >= config.WORLD.maxParticles) this.items.shift()
-    this.items.push({
-      x: x,
-      y: y,
-      oldX: x,
-      oldY: y,
-      vx: vx,
-      vy: vy,
-      color: color,
-      life: life,
-      maxLife: life,
-      width: width || 1.5,
-      drag: drag === undefined ? 0.965 : drag
-    })
+    var particle
+    var replacing = this.items.length >= config.WORLD.maxParticles
+    if (replacing) {
+      this.replaceCursor %= this.items.length
+      particle = this.items[this.replaceCursor]
+      this.replaceCursor += 1
+    } else {
+      particle = this.pool.pop() || {}
+    }
+    particle.x = x
+    particle.y = y
+    particle.oldX = x
+    particle.oldY = y
+    particle.vx = vx
+    particle.vy = vy
+    particle.color = color
+    particle.life = life
+    particle.maxLife = life
+    particle.width = width || 1.5
+    particle.drag = drag === undefined ? 0.965 : drag
+    if (!replacing) this.items.push(particle)
   }
 
   burst(x, y, color, count, speed, options) {
@@ -56,11 +71,12 @@ class ParticleSystem {
   }
 
   update(dt, blackholes) {
-    for (var i = this.items.length - 1; i >= 0; i -= 1) {
+    var write = 0
+    for (var i = 0; i < this.items.length; i += 1) {
       var particle = this.items[i]
       particle.life -= dt
       if (particle.life <= 0) {
-        this.items.splice(i, 1)
+        this.pool.push(particle)
         continue
       }
       particle.oldX = particle.x
@@ -81,7 +97,11 @@ class ParticleSystem {
       particle.vy *= damping
       particle.x += particle.vx * dt
       particle.y += particle.vy * dt
+      this.items[write] = particle
+      write += 1
     }
+    this.items.length = write
+    if (this.replaceCursor >= write) this.replaceCursor = 0
   }
 
   draw(ctx) {
@@ -96,7 +116,7 @@ class ParticleSystem {
       ctx.strokeStyle = particle.color
       ctx.lineWidth = particle.width
       ctx.shadowColor = particle.color
-      ctx.shadowBlur = particle.width * 3
+      ctx.shadowBlur = this.items.length < 720 || i % 2 === 0 ? particle.width * 3 : 0
       ctx.beginPath()
       ctx.moveTo(particle.oldX, particle.oldY)
       ctx.lineTo(particle.x, particle.y)
@@ -110,6 +130,7 @@ class GridField {
   constructor() {
     this.impulses = []
     this.time = 0
+    this.output = { x: 0, y: 0 }
   }
 
   pulse(x, y, strength, color) {
@@ -126,12 +147,17 @@ class GridField {
 
   update(dt) {
     this.time += dt
-    for (var i = this.impulses.length - 1; i >= 0; i -= 1) {
+    var write = 0
+    for (var i = 0; i < this.impulses.length; i += 1) {
       var impulse = this.impulses[i]
       impulse.age += dt
       impulse.life -= dt * 0.72
-      if (impulse.life <= 0) this.impulses.splice(i, 1)
+      if (impulse.life > 0) {
+        this.impulses[write] = impulse
+        write += 1
+      }
     }
+    this.impulses.length = write
   }
 
   distort(x, y, blackholes) {
@@ -160,7 +186,9 @@ class GridField {
         offsetY += hy / holeDistance * pull
       }
     }
-    return { x: x + offsetX, y: y + offsetY }
+    this.output.x = x + offsetX
+    this.output.y = y + offsetY
+    return this.output
   }
 }
 

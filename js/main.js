@@ -13,7 +13,7 @@ function resize() {
   var info = windowInfo()
   var width = info.windowWidth || info.screenWidth
   var height = info.windowHeight || info.screenHeight
-  game.resize(width, height, info.pixelRatio || 1)
+  game.resize(width, height, info.pixelRatio || 1, info.safeArea)
 }
 
 resize()

@@ -25,17 +25,26 @@ class GeometryGame {
     this.score = 0
     this.elapsed = 0
     this.lives = 3
-    this.bombs = 3
     this.multiplier = 1
     this.totalKills = 0
     this.streakKills = 0
     this.enemies = []
     this.bullets = []
     this.blackholes = []
+    this.supplies = []
+    this.allies = []
     this.popups = []
     this.shockwaves = []
     this.spawnTimer = 1
+    this.supplyTimer = 12
+    this.missileTimer = 0
+    this.overloadTimer = 0
+    this.fireHeading = 0
+    this.hasFireHeading = false
+    this.directionalTargets = []
+    this.random = Math.random
     this.lastPhase = -1
+    this.assault = math.assaultAt(0)
     this.message = ''
     this.messageTimer = 0
     this.gameOverTimer = 0
@@ -70,14 +79,14 @@ class GeometryGame {
     }
   }
 
-  resize(width, height, dpr) {
+  resize(width, height, dpr, safeArea) {
     this.width = width
     this.height = height
     this.dpr = math.clamp(dpr || 1, 1, 2.5)
     this.canvas.width = Math.round(width * this.dpr)
     this.canvas.height = Math.round(height * this.dpr)
     this.input.resize(width, height)
-    this.renderer.resize(width, height)
+    this.renderer.resize(width, height, safeArea)
     if (!this.player || this.state === 'title') this.player = this.createPlayer(width * 0.5, height * 0.5)
     this.keepInside(this.player)
   }
@@ -104,20 +113,28 @@ class GeometryGame {
     this.score = 0
     this.elapsed = 0
     this.lives = 3
-    this.bombs = 3
     this.multiplier = 1
     this.totalKills = 0
     this.streakKills = 0
     this.enemies.length = 0
     this.bullets.length = 0
     this.blackholes.length = 0
+    this.supplies.length = 0
+    this.allies.length = 0
     this.popups.length = 0
     this.shockwaves.length = 0
-    this.particles.items.length = 0
+    this.particles.clear()
     this.grid.impulses.length = 0
-    this.spawnTimer = 0.8
+    this.spawnTimer = this.audio.nextBeatDelay(0.8, this.time)
+    this.supplyTimer = 12 + this.random() * 6
+    this.missileTimer = 0
+    this.overloadTimer = 0
+    this.fireHeading = 0
+    this.hasFireHeading = false
+    this.directionalTargets.length = 0
     this.lastPhase = -1
-    this.message = 'GRID LEVEL 1'
+    this.assault = math.assaultAt(0)
+    this.message = 'ASSAULT 01 // SWARM'
     this.messageTimer = 1.8
     this.gameOverTimer = 0
     this.flash = 0.28
@@ -147,7 +164,6 @@ class GeometryGame {
       if (this.paused) {
         if (actions.start) this.paused = false
       } else {
-        if (actions.bomb) this.useBomb()
         this.updatePlaying(delta)
       }
     }
@@ -175,15 +191,22 @@ class GeometryGame {
   updatePlaying(dt) {
     this.elapsed += dt
     this.messageTimer = Math.max(0, this.messageTimer - dt)
+    this.updateSpecialTimers(dt)
     this.updatePlayer(dt)
     this.updateSpawner(dt)
+    this.updateSupplies(dt)
     this.updateEnemies(dt)
+    this.updateAllies(dt)
     this.updateBullets(dt)
     this.resolveCollisions()
+    this.compactEntities()
+    this.refreshBlackholes()
     this.updateEffects(dt)
-    this.enemies = this.enemies.filter(function (enemy) { return !enemy.dead })
-    this.bullets = this.bullets.filter(function (bullet) { return !bullet.dead })
-    this.blackholes = this.enemies.filter(function (enemy) { return enemy.type === 'blackhole' && enemy.spawn <= 0 })
+  }
+
+  updateSpecialTimers(dt) {
+    this.missileTimer = Math.max(0, this.missileTimer - dt)
+    this.overloadTimer = Math.max(0, this.overloadTimer - dt)
   }
 
   updatePlayer(dt) {
@@ -237,12 +260,39 @@ class GeometryGame {
     this.keepInside(player)
     player.fireTimer -= dt
 
-    var aimStrength = math.length(this.input.aim.x, this.input.aim.y)
-    if (aimStrength > 0.22) {
-      player.angle = Math.atan2(this.input.aim.y, this.input.aim.x)
+    var aimX = this.input.aim.x
+    var aimY = this.input.aim.y
+    var aimStrength = math.length(aimX, aimY)
+    if (this.input.singleHanded) {
+      aimX = this.input.move.x
+      aimY = this.input.move.y
+      aimStrength = math.length(aimX, aimY)
+      if (aimStrength > config.WORLD.aimInputThreshold) {
+        var desiredHeading = Math.atan2(aimY, aimX)
+        if (this.hasFireHeading) {
+          this.fireHeading += math.angleDelta(this.fireHeading, desiredHeading) * math.clamp(dt * config.WORLD.aimHeadingResponse, 0, 1)
+        } else {
+          this.fireHeading = desiredHeading
+          this.hasFireHeading = true
+        }
+      }
+      if (this.hasFireHeading && (this.input.left.active || aimStrength > config.WORLD.aimInputThreshold)) {
+        player.angle += math.angleDelta(player.angle, this.fireHeading) * math.clamp(dt * config.WORLD.aimHeadingResponse, 0, 1)
+        if (player.fireTimer <= 0) {
+          var directionalAngle = this.directionalFireAngle(this.fireHeading)
+          player.angle += math.angleDelta(player.angle, directionalAngle) * math.clamp(dt * config.WORLD.aimHeadingResponse, 0, 1)
+          this.fireWeapon(directionalAngle)
+          player.fireTimer = this.overloadTimer > 0 ? config.WORLD.overloadFireRate : config.WORLD.fireRate
+        }
+      } else if (velocity.length > 20) {
+        player.angle += math.angleDelta(player.angle, Math.atan2(player.vy, player.vx)) * math.clamp(dt * 4, 0, 1)
+      }
+      if (!this.input.left.active && aimStrength <= config.WORLD.aimInputThreshold) this.hasFireHeading = false
+    } else if (aimStrength > 0.22) {
+      player.angle = Math.atan2(aimY, aimX)
       if (player.fireTimer <= 0) {
-        this.fireWeapon()
-        player.fireTimer = config.WORLD.fireRate
+        this.fireWeapon(player.angle)
+        player.fireTimer = this.overloadTimer > 0 ? config.WORLD.overloadFireRate : config.WORLD.fireRate
       }
     } else if (velocity.length > 20) {
       player.angle += math.angleDelta(player.angle, Math.atan2(player.vy, player.vx)) * math.clamp(dt * 4, 0, 1)
@@ -259,10 +309,52 @@ class GeometryGame {
     }
   }
 
-  fireWeapon() {
+  nearestTarget() {
+    return this.nearestTargetFrom(this.player.x, this.player.y)
+  }
+
+  nearestTargetFrom(x, y) {
+    var nearest = null
+    var nearestDistance = Infinity
+    for (var i = 0; i < this.enemies.length; i += 1) {
+      var enemy = this.enemies[i]
+      if (enemy.dead || enemy.spawn > 0) continue
+      var dx = enemy.x - x
+      var dy = enemy.y - y
+      var distance = dx * dx + dy * dy
+      if (distance < nearestDistance) {
+        nearest = enemy
+        nearestDistance = distance
+      }
+    }
+    return nearest
+  }
+
+  directionalFireAngle(heading) {
+    this.directionalTargets.length = 0
+    for (var i = 0; i < this.enemies.length; i += 1) {
+      var enemy = this.enemies[i]
+      if (!enemy.dead && enemy.spawn <= 0) this.directionalTargets.push(enemy)
+    }
+    for (var s = 0; s < this.supplies.length; s += 1) {
+      var supply = this.supplies[s]
+      if (!supply.dead && supply.spawn <= 0) this.directionalTargets.push(supply)
+    }
+    return math.directionalTargetAngle(
+      this.player,
+      heading,
+      this.directionalTargets,
+      config.WORLD.aimAssistHalfAngle,
+      Math.max(this.width, this.height) * config.WORLD.aimAssistRangeRatio
+    )
+  }
+
+  fireWeapon(angleOverride) {
     var tier = math.weaponTierForScore(this.score)
-    var angle = this.player.angle
-    if (tier === 1) {
+    var angle = angleOverride === undefined ? this.player.angle : angleOverride
+    if (this.overloadTimer > 0) {
+      for (var spread = -4; spread <= 4; spread += 1) this.spawnBullet(angle + spread * 0.07, spread * 1.4)
+    } else if (tier === 1) {
       this.spawnBullet(angle, 0)
     } else if (tier === 2) {
       this.spawnBullet(angle, -4.5)
@@ -282,6 +374,7 @@ class GeometryGame {
 
   spawnBullet(angle, sideOffset) {
     if (this.bullets.length >= config.WORLD.maxBullets) return
+    var missile = this.missileTimer > 0
     var sideX = Math.cos(angle + Math.PI * 0.5) * sideOffset
     var sideY = Math.sin(angle + Math.PI * 0.5) * sideOffset
     var x = this.player.x + Math.cos(angle) * 14 + sideX
@@ -291,45 +384,207 @@ class GeometryGame {
       y: y,
       oldX: x,
       oldY: y,
-      vx: Math.cos(angle) * config.WORLD.bulletSpeed,
-      vy: Math.sin(angle) * config.WORLD.bulletSpeed,
-      radius: 2.8,
-      life: 1.25,
-      width: 2.2,
-      color: config.COLORS.yellow,
+      vx: Math.cos(angle) * (missile ? config.WORLD.missileSpeed : config.WORLD.bulletSpeed),
+      vy: Math.sin(angle) * (missile ? config.WORLD.missileSpeed : config.WORLD.bulletSpeed),
+      radius: missile ? 4.2 : 2.8,
+      life: missile ? 2.2 : 1.25,
+      width: missile ? 3.2 : 2.2,
+      color: missile ? config.COLORS.orange : config.COLORS.yellow,
+      kind: missile ? 'missile' : 'bullet',
+      source: 'player',
+      dead: false
+    })
+  }
+
+  spawnAllyBullet(ally, angle) {
+    if (this.bullets.length >= config.WORLD.maxBullets) return
+    var x = ally.x + Math.cos(angle) * 11
+    var y = ally.y + Math.sin(angle) * 11
+    this.bullets.push({
+      x: x,
+      y: y,
+      oldX: x,
+      oldY: y,
+      vx: Math.cos(angle) * 620,
+      vy: Math.sin(angle) * 620,
+      radius: 2.4,
+      life: 1.15,
+      width: 1.9,
+      color: config.COLORS.cyan,
+      kind: 'bullet',
+      source: 'ally',
       dead: false
     })
   }
 
   updateSpawner(dt) {
+    this.supplyTimer -= dt
+    var hasSupply = this.supplies.some(function (supply) { return !supply.dead })
+    if (this.supplyTimer <= 0 && !hasSupply) {
+      this.spawnSupply()
+      this.supplyTimer = config.WORLD.supplyIntervalMin + this.random() * (config.WORLD.supplyIntervalMax - config.WORLD.supplyIntervalMin)
+    }
     var difficulty = math.difficultyAt(this.elapsed)
-    if (difficulty.phase !== this.lastPhase) {
-      this.lastPhase = difficulty.phase
-      if (difficulty.phase > 0) {
-        this.message = 'GRID LEVEL ' + (difficulty.phase + 1)
+    this.assault = math.assaultAt(this.elapsed)
+    if (this.assault.phase !== this.lastPhase) {
+      this.lastPhase = this.assault.phase
+      if (this.assault.phase > 0) {
+        this.message = 'ASSAULT ' + this.padWave(this.assault.wave) + ' // ' + this.assault.label
         this.messageTimer = 1.5
-        this.grid.pulse(this.width * 0.5, this.height * 0.5, 12 + difficulty.phase, config.COLORS.violet)
+        this.spawnTimer = this.audio.nextBeatDelay(0.05, this.time)
+        this.grid.pulse(this.width * 0.5, this.height * 0.5, 12 + this.assault.phase, config.COLORS.gridHot)
       }
     }
     this.spawnTimer -= dt
-    if (this.spawnTimer > 0 || this.enemies.length >= difficulty.cap) return
-    this.spawnTimer = difficulty.spawnInterval * math.randomRange(0.76, 1.18)
-    var count = Math.min(difficulty.batch, difficulty.cap - this.enemies.length)
-    var type = this.chooseEnemyType(this.elapsed)
+    if (!this.assault.active || this.spawnTimer > 0 || this.enemies.length >= difficulty.cap) return
+    var minimumDelay = difficulty.spawnInterval * math.randomRange(0.76, 1.18)
+    this.spawnTimer = this.audio.nextBeatDelay(minimumDelay, this.time)
+    var count = Math.min(difficulty.batch + this.assault.batchBonus, difficulty.cap - this.enemies.length)
+    var edge = Math.floor(this.random() * 4)
+    var type = this.chooseEnemyType(this.elapsed, this.assault.key)
     for (var i = 0; i < count; i += 1) {
-      this.spawnEnemy(type)
-      if (Math.random() < 0.28) type = this.chooseEnemyType(this.elapsed)
+      this.spawnAssaultEnemy(type, edge, i, count)
+      if (this.random() < 0.28) type = this.chooseEnemyType(this.elapsed, this.assault.key)
     }
   }
 
-  chooseEnemyType(seconds) {
+  padWave(wave) {
+    return wave < 10 ? '0' + wave : String(wave)
+  }
+
+  spawnSupply(forcedX, forcedY, forcedEffect) {
+    var margin = 68
+    var x = forcedX === undefined ? margin + this.random() * Math.max(1, this.width - margin * 2) : forcedX
+    var y = forcedY === undefined ? 105 + this.random() * Math.max(1, this.height - 210) : forcedY
+    var effects = ['detonation', 'overload', 'allies']
+    var effect = forcedEffect || effects[Math.min(effects.length - 1, Math.floor(this.random() * effects.length))]
+    var supply = {
+      x: x,
+      y: y,
+      radius: 20,
+      hp: config.WORLD.supplyHits,
+      maxHp: config.WORLD.supplyHits,
+      effect: effect,
+      spawn: 0.6,
+      age: 0,
+      life: 18,
+      dead: false
+    }
+    this.supplies.push(supply)
+    this.grid.pulse(x, y, 12, config.COLORS.hud)
+    this.shockwave(x, y, config.COLORS.hud, 0.55, 90)
+    this.message = 'SUPER SUPPLY INBOUND'
+    this.messageTimer = 1.25
+    return supply
+  }
+
+  updateSupplies(dt) {
+    for (var i = 0; i < this.supplies.length; i += 1) {
+      var supply = this.supplies[i]
+      if (supply.dead) continue
+      supply.age += dt
+      supply.spawn = Math.max(0, supply.spawn - dt)
+      supply.life -= dt
+      if (supply.life <= 0) supply.dead = true
+    }
+  }
+
+  collectSupply(supply) {
+    if (supply.dead) return
+    supply.dead = true
+    this.particles.burst(supply.x, supply.y, config.COLORS.hud, 68, 280, { minLife: 0.35, maxLife: 0.95, minWidth: 1, maxWidth: 3 })
+    this.grid.pulse(supply.x, supply.y, 26, config.COLORS.hud)
+    this.shockwave(supply.x, supply.y, config.COLORS.hud, 0.8, 220)
+    this.activateSuperWeapon(supply.effect)
+  }
+
+  activateSuperWeapon(effect) {
+    if (effect === 'detonation') {
+      var delay = 0.1
+      for (var i = 0; i < this.enemies.length; i += 1) {
+        var enemy = this.enemies[i]
+        if (enemy.dead) continue
+        if (enemy.type === 'splitter') enemy.fragmentsOnDeath = false
+        enemy.selfDestruct = delay
+        delay += 0.065
+      }
+      this.message = 'CHAIN DETONATION'
+      this.messageTimer = 1.5
+      this.audio.superDetonation()
+    } else if (effect === 'overload') {
+      this.overloadTimer = config.WORLD.overloadDuration
+      this.message = 'WEAPON OVERDRIVE 8S'
+      this.messageTimer = 1.5
+      this.audio.life()
+    } else if (effect === 'allies') {
+      this.spawnAllies(3 + Math.floor(this.random() * 3))
+      this.message = 'ALLY WING DEPLOYED'
+      this.messageTimer = 1.5
+      this.audio.life()
+    }
+  }
+
+  spawnAllies(count) {
+    this.allies.length = 0
+    var amount = Math.min(config.WORLD.maxAllies, count)
+    for (var i = 0; i < amount; i += 1) {
+      var phase = i / amount * Math.PI * 2
+      this.allies.push({
+        x: this.player.x + Math.cos(phase) * 46,
+        y: this.player.y + Math.sin(phase) * 46,
+        angle: phase,
+        phase: phase,
+        life: config.WORLD.allyDuration,
+        fireTimer: i * 0.07
+      })
+    }
+  }
+
+  updateAllies(dt) {
+    for (var i = 0; i < this.allies.length; i += 1) {
+      var ally = this.allies[i]
+      ally.life -= dt
+      if (ally.life <= 0) continue
+      ally.phase += dt * (0.72 + i * 0.035)
+      var orbit = 48 + i * 13
+      var targetX = this.player.x + Math.cos(ally.phase) * orbit
+      var targetY = this.player.y + Math.sin(ally.phase) * orbit
+      ally.x = math.lerp(ally.x, targetX, math.clamp(dt * 5, 0, 1))
+      ally.y = math.lerp(ally.y, targetY, math.clamp(dt * 5, 0, 1))
+      ally.fireTimer -= dt
+      var target = this.nearestTargetFrom(ally.x, ally.y)
+      if (target) ally.angle = Math.atan2(target.y - ally.y, target.x - ally.x)
+      if (target && ally.fireTimer <= 0) {
+        this.spawnAllyBullet(ally, ally.angle)
+        ally.fireTimer = 0.24 + i * 0.018
+      }
+    }
+  }
+
+  chooseEnemyType(seconds, assaultKey) {
     var choices = ['wanderer', 'wanderer', 'grunt', 'grunt']
-    if (seconds > 16) choices.push('weaver', 'weaver')
+    if (assaultKey === 'swarm') choices.push('wanderer', 'grunt', 'grunt', 'weaver')
+    if (seconds > 12) choices.push('dart')
+    if (seconds > 16) choices.push('weaver')
+    if (seconds > 17 && assaultKey === 'flank') choices.push('dart', 'dart', 'weaver', 'orbiter')
+    if (seconds > 26) choices.push('orbiter')
     if (seconds > 32) choices.push('spinner')
+    if (seconds > 35 && assaultKey === 'spiral') choices.push('spinner', 'spinner', 'orbiter', 'snake')
+    if (seconds > 44) choices.push('splitter')
     if (seconds > 48) choices.push('snake')
+    if (seconds > 53 && assaultKey === 'siege') choices.push('splitter', 'snake', 'repulsar')
+    if (seconds > 62) choices.push('crusher')
     if (seconds > 68) choices.push('repulsar')
     if (seconds > 82 && this.blackholes.length < 3) choices.push('blackhole')
     return math.pick(choices)
+  }
+
+  spawnAssaultEnemy(type, edge, index, count) {
+    var definition = config.ENEMY[type]
+    var margin = config.WORLD.margin + definition.radius + 4
+    var lane = (index + 1) / (count + 1)
+    var point = this.spawnPoint(margin, edge, lane)
+    return this.spawnEnemy(type, point.x, point.y)
   }
 
   spawnEnemy(type, forcedX, forcedY) {
@@ -339,7 +594,7 @@ class GeometryGame {
     var point = this.spawnPoint(margin)
     var x = forcedX === undefined ? point.x : forcedX
     var y = forcedY === undefined ? point.y : forcedY
-    var angle = Math.random() * Math.PI * 2
+    var angle = this.random() * Math.PI * 2
     var enemy = {
       type: type,
       x: x,
@@ -354,9 +609,12 @@ class GeometryGame {
       score: definition.score,
       color: definition.color,
       spawn: 0.55,
-      age: Math.random() * 4,
-      phase: Math.random() * Math.PI * 2,
+      age: this.random() * 4,
+      phase: this.random() * Math.PI * 2,
       mass: type === 'blackhole' ? 1 : 0,
+      missileChargeUsed: false,
+      fragmentsOnDeath: type === 'splitter',
+      selfDestruct: 0,
       dead: false,
       segments: []
     }
@@ -375,22 +633,23 @@ class GeometryGame {
     return enemy
   }
 
-  spawnPoint(margin) {
+  spawnPoint(margin, preferredEdge, lane) {
     var point = { x: margin, y: margin }
     for (var attempt = 0; attempt < 8; attempt += 1) {
-      var edge = math.randomInt(0, 3)
+      var edge = preferredEdge === undefined ? Math.floor(this.random() * 4) : preferredEdge
+      var lanePosition = lane === undefined ? this.random() : math.clamp(lane + (this.random() - 0.5) * 0.16, 0.08, 0.92)
       if (edge === 0) {
-        point.x = math.randomRange(margin, this.width - margin)
+        point.x = margin + lanePosition * (this.width - margin * 2)
         point.y = margin
       } else if (edge === 1) {
         point.x = this.width - margin
-        point.y = math.randomRange(margin, this.height - margin)
+        point.y = margin + lanePosition * (this.height - margin * 2)
       } else if (edge === 2) {
-        point.x = math.randomRange(margin, this.width - margin)
+        point.x = margin + lanePosition * (this.width - margin * 2)
         point.y = this.height - margin
       } else {
         point.x = margin
-        point.y = math.randomRange(margin, this.height - margin)
+        point.y = margin + lanePosition * (this.height - margin * 2)
       }
       if (math.length(point.x - this.player.x, point.y - this.player.y) > 145) break
     }
@@ -402,6 +661,13 @@ class GeometryGame {
     for (var i = 0; i < this.enemies.length; i += 1) {
       var enemy = this.enemies[i]
       if (enemy.dead) continue
+      if (enemy.selfDestruct > 0) {
+        enemy.selfDestruct -= dt
+        if (enemy.selfDestruct <= 0) {
+          this.destroyEnemy(enemy, true)
+          continue
+        }
+      }
       enemy.age += dt
       if (enemy.spawn > 0) {
         enemy.spawn -= dt
@@ -443,6 +709,27 @@ class GeometryGame {
         enemy.mass = math.clamp(enemy.mass + dt * 0.06, 1, 10)
         enemy.vx *= Math.pow(0.985, dt * 60)
         enemy.vy *= Math.pow(0.985, dt * 60)
+      } else if (enemy.type === 'dart') {
+        var charging = enemy.age % 1.35 < 0.45
+        var dartSpeed = speed * (charging ? 1.85 : 0.45)
+        this.steer(enemy, target.x * dartSpeed, target.y * dartSpeed, dt * (charging ? 8 : 3))
+        enemy.angle = Math.atan2(enemy.vy, enemy.vx)
+      } else if (enemy.type === 'orbiter') {
+        var radial = target.length > 190 ? 0.8 : (target.length < 135 ? -0.8 : 0)
+        var orbitDirection = Math.sin(enemy.phase) >= 0 ? 1 : -1
+        this.steer(enemy, (target.x * radial - target.y * orbitDirection) * speed, (target.y * radial + target.x * orbitDirection) * speed, dt * 3.4)
+        enemy.angle += dt * orbitDirection * 2.8
+      } else if (enemy.type === 'crusher') {
+        this.steer(enemy, target.x * speed, target.y * speed, dt * 0.7)
+        enemy.angle += dt * 0.55
+      } else if (enemy.type === 'splitter') {
+        var splitterWave = Math.sin(enemy.age * 2.6 + enemy.phase) * speed * 0.35
+        this.steer(enemy, target.x * speed - target.y * splitterWave, target.y * speed + target.x * splitterWave, dt * 1.4)
+        enemy.angle += dt * 1.6
+      } else if (enemy.type === 'shard') {
+        var shardCurve = Math.sin(enemy.age * 7 + enemy.phase) * speed * 0.32
+        this.steer(enemy, target.x * speed - target.y * shardCurve, target.y * speed + target.x * shardCurve, dt * 5.5)
+        enemy.angle = Math.atan2(enemy.vy, enemy.vx)
       }
 
       var previousX = enemy.x
@@ -514,6 +801,17 @@ class GeometryGame {
       bullet.life -= dt
       bullet.oldX = bullet.x
       bullet.oldY = bullet.y
+      if (bullet.kind === 'missile') {
+        var target = this.nearestTargetFrom(bullet.x, bullet.y)
+        if (target) {
+          var desiredAngle = Math.atan2(target.y - bullet.y, target.x - bullet.x)
+          var currentAngle = Math.atan2(bullet.vy, bullet.vx)
+          var turn = math.angleDelta(currentAngle, desiredAngle) * math.clamp(config.WORLD.missileTurnRate * dt, 0, 1)
+          var missileAngle = currentAngle + turn
+          bullet.vx = Math.cos(missileAngle) * config.WORLD.missileSpeed
+          bullet.vy = Math.sin(missileAngle) * config.WORLD.missileSpeed
+        }
+      }
       for (var h = 0; h < this.blackholes.length; h += 1) {
         var hole = this.blackholes[h]
         var hx = hole.x - bullet.x
@@ -555,6 +853,21 @@ class GeometryGame {
     for (var b = 0; b < this.bullets.length; b += 1) {
       var bullet = this.bullets[b]
       if (bullet.dead) continue
+      for (var s = 0; s < this.supplies.length; s += 1) {
+        var supply = this.supplies[s]
+        if (supply.dead || supply.spawn > 0) continue
+        var supplyX = bullet.x - supply.x
+        var supplyY = bullet.y - supply.y
+        if (supplyX * supplyX + supplyY * supplyY > (supply.radius + bullet.radius) * (supply.radius + bullet.radius)) continue
+        bullet.dead = true
+        supply.hp -= 1
+        this.particles.burst(bullet.x, bullet.y, config.COLORS.hud, 7, 105, { maxLife: 0.38, maxWidth: 1.8 })
+        this.grid.pulse(supply.x, supply.y, 3 + (supply.maxHp - supply.hp) * 0.6, config.COLORS.hud)
+        if (supply.hp <= 0) this.collectSupply(supply)
+        else this.audio.hit()
+        break
+      }
+      if (bullet.dead) continue
       for (var e = 0; e < this.enemies.length; e += 1) {
         var enemy = this.enemies[e]
         if (enemy.dead || enemy.spawn > 0) continue
@@ -564,6 +877,13 @@ class GeometryGame {
         if (dx * dx + dy * dy <= (hitRadius + bullet.radius) * (hitRadius + bullet.radius)) {
           bullet.dead = true
           enemy.hp -= 1
+          if (enemy.type === 'spinner' && !enemy.missileChargeUsed) {
+            enemy.missileChargeUsed = true
+            this.missileTimer = config.WORLD.missileDuration
+            this.message = 'MISSILE LOCK 5S'
+            this.messageTimer = 1.25
+            this.audio.life()
+          }
           if (enemy.type === 'blackhole') enemy.mass = math.clamp(enemy.mass + 0.16, 1, 10)
           this.particles.burst(bullet.x, bullet.y, enemy.color, 5, 95, { maxLife: 0.35, maxWidth: 1.6 })
           if (enemy.hp <= 0) this.destroyEnemy(enemy, true)
@@ -591,6 +911,7 @@ class GeometryGame {
   destroyEnemy(enemy, awardScore) {
     if (enemy.dead) return
     enemy.dead = true
+    if (enemy.fragmentsOnDeath) this.spawnSplitterShards(enemy)
     var isLarge = enemy.type === 'blackhole'
     var count = isLarge ? 100 : (enemy.type === 'snake' || enemy.type === 'repulsar' ? 42 : 22)
     var speed = isLarge ? 360 : 210
@@ -606,6 +927,17 @@ class GeometryGame {
     this.shake = Math.max(this.shake, isLarge ? 12 : 2.6)
     this.audio.explode(isLarge ? 2 : 1)
     if (awardScore) this.awardKill(enemy)
+  }
+
+  spawnSplitterShards(enemy) {
+    for (var i = 0; i < 3; i += 1) {
+      var angle = enemy.angle + i / 3 * Math.PI * 2
+      var shard = this.spawnEnemy('shard', enemy.x + Math.cos(angle) * 10, enemy.y + Math.sin(angle) * 10)
+      shard.spawn = 0.12
+      shard.phase = angle
+      shard.vx = Math.cos(angle) * shard.speed
+      shard.vy = Math.sin(angle) * shard.speed
+    }
   }
 
   awardKill(enemy) {
@@ -626,18 +958,16 @@ class GeometryGame {
     })
 
     var extraLives = math.crossedThreshold(previousScore, this.score, 75000, 75000)
-    var extraBombs = math.crossedThreshold(previousScore, this.score, 100000, 100000)
+    var extraSupplies = math.crossedThreshold(previousScore, this.score, 100000, 100000)
     if (extraLives > 0) {
       this.lives += extraLives
       this.message = 'EXTRA LIFE'
       this.messageTimer = 1.6
       this.audio.life()
     }
-    if (extraBombs > 0) {
-      this.bombs += extraBombs
-      this.message = 'EXTRA BOMB'
-      this.messageTimer = 1.6
-      this.audio.life()
+    if (extraSupplies > 0) {
+      for (var supply = 0; supply < extraSupplies; supply += 1) this.spawnSupply()
+      this.supplyTimer = config.WORLD.supplyIntervalMin + this.random() * (config.WORLD.supplyIntervalMax - config.WORLD.supplyIntervalMin)
     }
     var tier = math.weaponTierForScore(this.score)
     if (tier > previousTier) {
@@ -673,22 +1003,6 @@ class GeometryGame {
     }
   }
 
-  useBomb() {
-    if (this.bombs <= 0 || this.player.deadTimer > 0) return
-    this.bombs -= 1
-    this.flash = 0.85
-    this.shake = 16
-    this.audio.bomb()
-    this.grid.pulse(this.player.x, this.player.y, 58, config.COLORS.white)
-    this.shockwave(this.player.x, this.player.y, config.COLORS.white, 1.15, Math.max(this.width, this.height) * 0.8)
-    var targets = this.enemies.slice()
-    for (var i = 0; i < targets.length; i += 1) {
-      if (!targets[i].dead) this.destroyEnemy(targets[i], false)
-    }
-    this.message = 'SMART BOMB'
-    this.messageTimer = 1
-  }
-
   clearSpawnArea(x, y, radius) {
     for (var i = 0; i < this.enemies.length; i += 1) {
       var enemy = this.enemies[i]
@@ -697,20 +1011,84 @@ class GeometryGame {
   }
 
   updateEffects(dt) {
-    this.blackholes = this.enemies.filter(function (enemy) { return enemy.type === 'blackhole' && !enemy.dead && enemy.spawn <= 0 })
     this.grid.update(dt)
     this.particles.update(dt, this.blackholes)
-    for (var i = this.popups.length - 1; i >= 0; i -= 1) {
-      this.popups[i].life -= dt
-      this.popups[i].y -= 24 * dt
-      if (this.popups[i].life <= 0) this.popups.splice(i, 1)
+    var popupWrite = 0
+    for (var i = 0; i < this.popups.length; i += 1) {
+      var popup = this.popups[i]
+      popup.life -= dt
+      popup.y -= 24 * dt
+      if (popup.life > 0) {
+        this.popups[popupWrite] = popup
+        popupWrite += 1
+      }
     }
-    for (var j = this.shockwaves.length - 1; j >= 0; j -= 1) {
+    this.popups.length = popupWrite
+    var waveWrite = 0
+    for (var j = 0; j < this.shockwaves.length; j += 1) {
       var wave = this.shockwaves[j]
       wave.life -= dt / wave.duration
       wave.radius += wave.speed * dt
-      if (wave.life <= 0) this.shockwaves.splice(j, 1)
+      if (wave.life > 0) {
+        this.shockwaves[waveWrite] = wave
+        waveWrite += 1
+      }
     }
+    this.shockwaves.length = waveWrite
+  }
+
+  compactEntities() {
+    var write = 0
+    for (var i = 0; i < this.enemies.length; i += 1) {
+      var enemy = this.enemies[i]
+      if (!enemy.dead) {
+        this.enemies[write] = enemy
+        write += 1
+      }
+    }
+    this.enemies.length = write
+
+    write = 0
+    for (var b = 0; b < this.bullets.length; b += 1) {
+      var bullet = this.bullets[b]
+      if (!bullet.dead) {
+        this.bullets[write] = bullet
+        write += 1
+      }
+    }
+    this.bullets.length = write
+
+    write = 0
+    for (var s = 0; s < this.supplies.length; s += 1) {
+      var supply = this.supplies[s]
+      if (!supply.dead) {
+        this.supplies[write] = supply
+        write += 1
+      }
+    }
+    this.supplies.length = write
+
+    write = 0
+    for (var a = 0; a < this.allies.length; a += 1) {
+      var ally = this.allies[a]
+      if (ally.life > 0) {
+        this.allies[write] = ally
+        write += 1
+      }
+    }
+    this.allies.length = write
+  }
+
+  refreshBlackholes() {
+    var write = 0
+    for (var i = 0; i < this.enemies.length; i += 1) {
+      var enemy = this.enemies[i]
+      if (enemy.type === 'blackhole' && enemy.spawn <= 0) {
+        this.blackholes[write] = enemy
+        write += 1
+      }
+    }
+    this.blackholes.length = write
   }
 
   shockwave(x, y, color, duration, speed) {
@@ -751,6 +1129,8 @@ class GeometryGame {
     this.enemies.length = 0
     this.blackholes.length = 0
     this.bullets.length = 0
+    this.supplies.length = 0
+    this.allies.length = 0
   }
 
   debugSnapshot() {
@@ -760,11 +1140,15 @@ class GeometryGame {
       score: this.score,
       highScore: this.highScore,
       lives: this.lives,
-      bombs: this.bombs,
       multiplier: this.multiplier,
+      assault: { wave: this.assault.wave, label: this.assault.label, timeLeft: Math.ceil(this.assault.timeLeft) },
       elapsed: Math.round(this.elapsed * 100) / 100,
       enemies: this.enemies.length,
       bullets: this.bullets.length,
+      supplies: this.supplies.length,
+      allies: this.allies.length,
+      missileTime: Math.round(this.missileTimer * 10) / 10,
+      overloadTime: Math.round(this.overloadTimer * 10) / 10,
       particles: this.particles.items.length,
       player: { x: Math.round(this.player.x), y: Math.round(this.player.y), invulnerable: this.player.invulnerable }
     }
@@ -782,10 +1166,6 @@ class GeometryGame {
   debugLoseLife() {
     this.player.invulnerable = 0
     this.loseLife()
-  }
-
-  debugBomb() {
-    this.useBomb()
   }
 }
 
