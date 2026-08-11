@@ -1,5 +1,18 @@
 # Geometry Fighter Brand Assets
 
+## WeChat Mini Game universal cover
+
+| File | Size | Intended use |
+|---|---:|---|
+| `geometry-fighter-wechat-universal-cover-master-v1.png` | 2022 × 778 | Lossless generated master |
+| `geometry-fighter-wechat-universal-cover-650x250-v1.jpg` | 650 × 250, 40,787 bytes | Upload-ready WeChat Mini Game universal material cover |
+
+The upload-ready cover follows WeChat's official banner guide: straight-corner JPEG under 80 KB, right-side `434 × 250` primary-display region, left-side `216 × 250` supporting region, and no game icon, logo, title, slogan, HUD, device frame, rounded mask, or baked black overlay. The current-code fighter is rendered as two concentric white open hexagons facing the firing direction; the right-side super supply uses circular orbit rings, broken arcs, a white core, cardinal rays, and eight durability pips.
+
+### Universal cover final prompt
+
+Create an original `13:5` Geometry Fighter gameplay banner for the WeChat Mini Game universal material slot. Use a near-black reactive arena grid with cyan distortion waves and controlled particles. Keep the main action inside the rightmost `434/650` of the canvas: the latest code-accurate player fighter made from two concentric white open-hexagon line paths, both missing their forward side, attacking an acid-lime circular super-supply beacon with two broken orbital arcs, white core, four rays, and eight pips. Use the left `216/650` only for smaller magenta crossed-box, violet pinwheel, cyan diamond, partial red/orange black-hole ring, and subtle projectile trails. Preserve the runtime palette and thin incandescent vector style. No text, letters, numbers, game name, icon, logo, slogan, HUD, joystick, phone frame, watermark, rounded corners, or baked black mask.
+
 ## V2 — PC-era neon vector arcade update
 
 The `-v2` files keep Geometry Fighter's own triangle-plus-open-hexagon emblem while moving the rendering toward a sharper PC-era neon vector arcade language: razor-thin incandescent outlines, white-hot energy cores, warped cobalt grids, crystalline splinters, radial field rings, and denser motion particles. The update intentionally does not reproduce any third-party logo, ship silhouette, enemy glyph, or cover composition. The original files remain unchanged.
