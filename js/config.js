@@ -18,7 +18,7 @@ const WORLD = {
   gridSize: 30,
   maxBullets: 180,
   maxEnemies: 75,
-  maxParticles: 1300,
+  maxParticles: 720,
   playerSpeed: 245,
   bulletSpeed: 570,
   fireRate: 0.105

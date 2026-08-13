@@ -60,10 +60,11 @@ class AudioSystem {
 
   update(time, active) {
     if (!active || !this.context || time < this.nextBeat) return
-    var notes = [55, 55, 82.4, 65.4, 55, 110, 73.4, 82.4]
-    this.tone(notes[this.beatStep % notes.length], 0.08, 'square', 0.012, 45)
+    var notes = [110, 110, 164.81, 130.81, 110, 220, 146.83, 164.81]
+    var frequency = notes[this.beatStep % notes.length]
+    this.tone(frequency, 0.16, 'triangle', 0.02, frequency * 0.72)
     this.beatStep += 1
-    this.nextBeat = time + 0.38
+    this.nextBeat = time + 0.36
   }
 }
 

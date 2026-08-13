@@ -113,7 +113,7 @@ class GeometryGame {
     this.blackholes.length = 0
     this.popups.length = 0
     this.shockwaves.length = 0
-    this.particles.items.length = 0
+    this.particles.clear()
     this.grid.impulses.length = 0
     this.spawnTimer = 0.8
     this.lastPhase = -1
@@ -180,10 +180,35 @@ class GeometryGame {
     this.updateEnemies(dt)
     this.updateBullets(dt)
     this.resolveCollisions()
+    this.compactEntities()
     this.updateEffects(dt)
-    this.enemies = this.enemies.filter(function (enemy) { return !enemy.dead })
-    this.bullets = this.bullets.filter(function (bullet) { return !bullet.dead })
-    this.blackholes = this.enemies.filter(function (enemy) { return enemy.type === 'blackhole' && enemy.spawn <= 0 })
+  }
+
+  compactEntities() {
+    var write = 0
+    for (var i = 0; i < this.enemies.length; i += 1) {
+      if (this.enemies[i].dead) continue
+      this.enemies[write] = this.enemies[i]
+      write += 1
+    }
+    this.enemies.length = write
+
+    write = 0
+    for (var j = 0; j < this.bullets.length; j += 1) {
+      if (this.bullets[j].dead) continue
+      this.bullets[write] = this.bullets[j]
+      write += 1
+    }
+    this.bullets.length = write
+
+    write = 0
+    for (var k = 0; k < this.enemies.length; k += 1) {
+      var enemy = this.enemies[k]
+      if (enemy.type !== 'blackhole' || enemy.spawn > 0) continue
+      this.blackholes[write] = enemy
+      write += 1
+    }
+    this.blackholes.length = write
   }
 
   updatePlayer(dt) {

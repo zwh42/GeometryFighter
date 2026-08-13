@@ -118,8 +118,8 @@ export function weaponTier(score: number): number {
 
 // allow: SIZE_OK — deterministic world state stays contiguous so frame-step ordering remains auditable.
 export class GeometryWorld {
-  width = 1280
-  height = 720
+  width = 720
+  height = 1280
   state: GameState = 'title'
   elapsed = 0
   score = 0

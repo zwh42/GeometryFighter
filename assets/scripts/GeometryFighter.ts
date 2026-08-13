@@ -1,3 +1,4 @@
+// allow: SIZE_OK — Cocos lifecycle and immediate-mode drawing share one scene-owned state surface.
 import {
   _decorator,
   Camera,
@@ -20,18 +21,26 @@ import {
   view
 } from 'cc'
 import {
-  Bullet,
-  ControlState,
-  Enemy,
-  EnemyKind,
   GeometryWorld,
-  Vector,
-  WorldEvent,
   clamp,
   length,
   normalized,
   weaponTier
 } from './simulation'
+import type { Bullet, ControlState, Enemy, EnemyKind, Vector, WorldEvent } from './simulation'
+import {
+  DESIGN_HEIGHT,
+  DESIGN_WIDTH,
+  GRID_SPACING,
+  MAX_GRID_WARP_RIPPLES,
+  MAX_PARTICLES,
+  MAX_RIPPLES,
+  gridBounds,
+  gridPointCount,
+  gridPointIndex
+} from './presentation'
+import type { GridBounds } from './presentation'
+import { Synth } from './synth'
 
 const { ccclass } = _decorator
 
@@ -76,68 +85,12 @@ interface Star extends Vector {
   phase: number
 }
 
-interface FrequencyParam {
-  setValueAtTime(value: number, time: number): void
-  exponentialRampToValueAtTime(value: number, time: number): void
-}
-
-interface AudioNodeLike {
-  connect(destination: unknown): void
-}
-
-interface OscillatorLike extends AudioNodeLike {
-  frequency: FrequencyParam
-  type: string
-  start(time: number): void
-  stop(time: number): void
-}
-
-interface GainLike extends AudioNodeLike {
-  gain: FrequencyParam
-}
-
-interface AudioContextLike {
-  currentTime: number
-  destination: unknown
-  state?: string
-  resume?(): Promise<void>
-  createOscillator(): OscillatorLike
-  createGain(): GainLike
-}
-
-interface MiniGamePlatform {
-  createWebAudioContext?(): AudioContextLike
-}
-
-class Synth {
-  private context: AudioContextLike | null = null
-
-  unlock(): void {
-    if (this.context) {
-      if (this.context.state === 'suspended') void this.context.resume?.()
-      return
-    }
-    const platform = (globalThis as { wx?: MiniGamePlatform }).wx
-    if (!platform?.createWebAudioContext) return
-    this.context = platform.createWebAudioContext()
-  }
-
-  tone(frequency: number, duration: number, volume: number, type: string, slide = 1): void {
-    const context = this.context
-    if (!context) return
-    const start = context.currentTime
-    const oscillator = context.createOscillator()
-    const gain = context.createGain()
-    oscillator.type = type
-    oscillator.frequency.setValueAtTime(frequency, start)
-    oscillator.frequency.exponentialRampToValueAtTime(Math.max(25, frequency * slide), start + duration)
-    gain.gain.setValueAtTime(Math.max(0.0001, volume), start)
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration)
-    oscillator.connect(gain)
-    gain.connect(context.destination)
-    oscillator.start(start)
-    oscillator.stop(start + duration)
-  }
+interface Burst {
+  readonly x: number
+  readonly y: number
+  readonly color: string
+  readonly count: number
+  readonly speed: number
 }
 
 @ccclass('GeometryFighter')
@@ -161,8 +114,11 @@ export class GeometryFighter extends Component {
   private readonly floatingTexts: FloatingText[] = []
   private readonly stars: Star[] = []
   private readonly activeBlackholes: Enemy[] = []
+  private readonly activeGridRipples: Ripple[] = []
   private readonly warpedGridPoints: Vector[] = []
   private readonly colorScratch = new Color()
+  private gridLayout: GridBounds = gridBounds(DESIGN_WIDTH, DESIGN_HEIGHT, GRID_SPACING)
+  private particleReplaceCursor = 0
   private graphics!: Graphics
   private scoreLabel!: Label
   private statusLabel!: Label
@@ -174,13 +130,9 @@ export class GeometryFighter extends Component {
   private time = 0
   private highScoreClock = 0
   private lastPlayerPosition: Vector = { x: 0, y: 0 }
-  private gridMinimumColumn = 0
-  private gridMaximumColumn = 0
-  private gridMinimumRow = 0
-  private gridMaximumRow = 0
 
   protected override onLoad(): void {
-    view.setDesignResolutionSize(1280, 720, ResolutionPolicy.FIXED_HEIGHT)
+    view.setDesignResolutionSize(DESIGN_WIDTH, DESIGN_HEIGHT, ResolutionPolicy.FIXED_WIDTH)
     this.ensureSceneCamera()
     this.createRenderLayers()
     this.createInterface()
@@ -205,6 +157,7 @@ export class GeometryFighter extends Component {
     this.time += dt
     this.updateKeyboard()
     this.world.update(dt, this.controls)
+    this.synth.update(this.time, this.world.state === 'playing')
     this.controls.start = false
     this.controls.bomb = false
     this.controls.pause = false
@@ -226,7 +179,7 @@ export class GeometryFighter extends Component {
   private ensureSceneCamera(): void {
     if (!this.node.getComponent(Canvas)) this.node.addComponent(Canvas)
     const transform = this.node.getComponent(UITransform) || this.node.addComponent(UITransform)
-    transform.setContentSize(1280, 720)
+    transform.setContentSize(DESIGN_WIDTH, DESIGN_HEIGHT)
     this.node.layer = Layers.Enum.UI_2D
     let cameraNode = this.node.getChildByName('Camera')
     if (!cameraNode) {
@@ -237,7 +190,7 @@ export class GeometryFighter extends Component {
     cameraNode.setPosition(0, 0, 1000)
     const camera = cameraNode.getComponent(Camera) || cameraNode.addComponent(Camera)
     camera.projection = Camera.ProjectionType.ORTHO
-    camera.orthoHeight = 360
+    camera.orthoHeight = DESIGN_HEIGHT * 0.5
     camera.visibility = Layers.Enum.UI_2D
     camera.clearColor = new Color(1, 3, 13, 255)
   }
@@ -251,7 +204,7 @@ export class GeometryFighter extends Component {
     layer.layer = Layers.Enum.UI_2D
     this.node.addChild(layer)
     const transform = layer.addComponent(UITransform)
-    transform.setContentSize(1280, 720)
+    transform.setContentSize(DESIGN_WIDTH, DESIGN_HEIGHT)
     const graphics = layer.addComponent(Graphics)
     graphics.lineJoin = Graphics.LineJoin.ROUND
     graphics.lineCap = Graphics.LineCap.ROUND
@@ -261,6 +214,9 @@ export class GeometryFighter extends Component {
   private createInterface(): void {
     this.scoreLabel = this.createLabel('Score', 23, '#bcff49')
     this.scoreLabel.horizontalAlign = Label.HorizontalAlign.LEFT
+    const scoreTransform = this.scoreLabel.node.getComponent(UITransform)
+    scoreTransform?.setContentSize(260, 80)
+    scoreTransform?.setAnchorPoint(0, 0.5)
     this.statusLabel = this.createLabel('Status', 18, '#fff36a')
     this.titleLabel = this.createLabel('Title', 74, '#eafbff')
     this.titleLabel.string = 'GEOMETRY\nFIGHTER'
@@ -315,7 +271,9 @@ export class GeometryFighter extends Component {
     this.world.resize(size.width, size.height)
     const transform = this.node.getComponent(UITransform)
     transform?.setContentSize(size.width, size.height)
-    for (const child of this.node.children) child.getComponent(UITransform)?.setContentSize(size.width, size.height)
+    this.graphics.node.getComponent(UITransform)?.setContentSize(size.width, size.height)
+    const camera = this.node.getChildByName('Camera')?.getComponent(Camera)
+    if (camera) camera.orthoHeight = size.height * 0.5
   }
 
   private touchPosition(event: EventTouch): Vector {
@@ -416,51 +374,59 @@ export class GeometryFighter extends Component {
   private processWorldEvents(events: WorldEvent[]): void {
     for (const event of events) {
       if (event.kind === 'shoot') {
-        this.spawnBurst(event.x, event.y, '#fff36a', Math.min(4, event.amount), 70)
-        this.ripples.push({ x: event.x, y: event.y, radius: 6, speed: 120, life: 0.22, maxLife: 0.22, strength: 5, color: event.color })
+        this.spawnBurst({ x: event.x, y: event.y, color: '#fff36a', count: Math.min(4, event.amount), speed: 70 })
+        this.addRipple({ x: event.x, y: event.y, radius: 6, speed: 120, life: 0.22, maxLife: 0.22, strength: 5, color: event.color })
         this.synth.tone(360 + event.amount * 65, 0.035, 0.018, 'square', 1.7)
       } else if (event.kind === 'kill') {
-        this.spawnBurst(event.x, event.y, event.color, 26, 235)
-        this.ripples.push({ x: event.x, y: event.y, radius: 10, speed: 270, life: 0.65, maxLife: 0.65, strength: 24, color: event.color })
+        this.spawnBurst({ x: event.x, y: event.y, color: event.color, count: 26, speed: 235 })
+        this.addRipple({ x: event.x, y: event.y, radius: 10, speed: 270, life: 0.65, maxLife: 0.65, strength: 24, color: event.color })
         this.floatingTexts.push({ x: event.x, y: event.y, text: event.text, color: event.color, life: 0.72 })
         this.synth.tone(90, 0.1, 0.04, 'sawtooth', 0.42)
       } else if (event.kind === 'bomb') {
-        this.spawnBurst(event.x, event.y, '#e9ffff', 110, 430)
-        this.ripples.push({ x: event.x, y: event.y, radius: 16, speed: 1050, life: 1, maxLife: 1, strength: 58, color: '#ffffff' })
+        this.spawnBurst({ x: event.x, y: event.y, color: '#e9ffff', count: 110, speed: 430 })
+        this.addRipple({ x: event.x, y: event.y, radius: 16, speed: 1050, life: 1, maxLife: 1, strength: 58, color: '#ffffff' })
         this.showMessage(event.text, '#ffffff', 1.2)
         this.synth.tone(58, 0.7, 0.12, 'sawtooth', 0.12)
       } else if (event.kind === 'death') {
-        this.spawnBurst(event.x, event.y, '#ffffff', 90, 360)
-        this.ripples.push({ x: event.x, y: event.y, radius: 15, speed: 560, life: 0.9, maxLife: 0.9, strength: 44, color: '#ff5679' })
+        this.spawnBurst({ x: event.x, y: event.y, color: '#ffffff', count: 90, speed: 360 })
+        this.addRipple({ x: event.x, y: event.y, radius: 15, speed: 560, life: 0.9, maxLife: 0.9, strength: 44, color: '#ff5679' })
         this.showMessage(event.text, '#ff6c7f', 1)
         this.synth.tone(210, 0.42, 0.1, 'sawtooth', 0.08)
       } else if (event.kind === 'reward' || event.kind === 'wave') {
         this.showMessage(event.text, event.color, 1.1)
         this.synth.tone(event.kind === 'reward' ? 760 : 430, 0.18, 0.05, 'sine', 1.7)
       } else if (event.kind === 'blackhole') {
-        this.spawnBurst(event.x, event.y, '#ff4fd8', 4, 100)
+        this.spawnBurst({ x: event.x, y: event.y, color: '#ff4fd8', count: 4, speed: 100 })
       }
     }
   }
 
-  private spawnBurst(x: number, y: number, color: string, count: number, speed: number): void {
-    for (let index = 0; index < count; index += 1) {
+  private addRipple(ripple: Ripple): void {
+    if (this.ripples.length >= MAX_RIPPLES) this.ripples.shift()
+    this.ripples.push(ripple)
+  }
+
+  private spawnBurst(burst: Burst): void {
+    for (let index = 0; index < burst.count; index += 1) {
       const angle = Math.random() * Math.PI * 2
-      const velocity = speed * (0.25 + Math.random() * 0.75)
+      const velocity = burst.speed * (0.25 + Math.random() * 0.75)
       const life = 0.25 + Math.random() * 0.75
-      this.particles.push({
-        x,
-        y,
-        vx: Math.cos(angle) * velocity,
-        vy: Math.sin(angle) * velocity,
-        life,
-        maxLife: life,
-        size: 1.2 + Math.random() * 3.6,
-        color,
-        drag: 1.5 + Math.random() * 3
-      })
+      if (this.particles.length < MAX_PARTICLES) {
+        this.particles.push({ x: burst.x, y: burst.y, vx: Math.cos(angle) * velocity, vy: Math.sin(angle) * velocity, life, maxLife: life, size: 1.2 + Math.random() * 3.6, color: burst.color, drag: 1.5 + Math.random() * 3 })
+        continue
+      }
+      const particle = this.particles[this.particleReplaceCursor]
+      particle.x = burst.x
+      particle.y = burst.y
+      particle.vx = Math.cos(angle) * velocity
+      particle.vy = Math.sin(angle) * velocity
+      particle.life = life
+      particle.maxLife = life
+      particle.size = 1.2 + Math.random() * 3.6
+      particle.color = burst.color
+      particle.drag = 1.5 + Math.random() * 3
+      this.particleReplaceCursor = (this.particleReplaceCursor + 1) % MAX_PARTICLES
     }
-    if (this.particles.length > 850) this.particles.splice(0, this.particles.length - 850)
   }
 
   private showMessage(text: string, color: string, duration: number): void {
@@ -550,40 +516,30 @@ export class GeometryFighter extends Component {
   }
 
   private prepareWarpedGrid(spacing: number): void {
-    const columns = Math.ceil(this.world.width / spacing) + 2
-    const rows = Math.ceil(this.world.height / spacing) + 2
-    this.gridMinimumColumn = -Math.floor(columns / 2)
-    this.gridMaximumColumn = Math.ceil(columns / 2)
-    this.gridMinimumRow = -Math.floor(rows / 2)
-    this.gridMaximumRow = Math.ceil(rows / 2)
+    const layout = gridBounds(this.world.width, this.world.height, spacing)
+    this.gridLayout = layout
     this.activeBlackholes.length = 0
     for (const enemy of this.world.enemies) {
       if (!enemy.dead && enemy.kind === 'blackhole') this.activeBlackholes.push(enemy)
     }
+    this.activeGridRipples.length = 0
+    const firstRipple = Math.max(0, this.ripples.length - MAX_GRID_WARP_RIPPLES)
+    for (let index = firstRipple; index < this.ripples.length; index += 1) {
+      this.activeGridRipples.push(this.ripples[index])
+    }
 
-    let pointIndex = 0
-    for (let column = this.gridMinimumColumn; column <= this.gridMaximumColumn; column += 1) {
-      for (let row = this.gridMinimumRow; row <= this.gridMaximumRow; row += 1) {
+    for (let column = layout.minimumColumn; column <= layout.maximumColumn; column += 1) {
+      for (let row = layout.minimumRow; row <= layout.maximumRow; row += 1) {
+        const pointIndex = gridPointIndex(layout, column, row)
         let point = this.warpedGridPoints[pointIndex]
         if (!point) {
           point = { x: 0, y: 0 }
-          this.warpedGridPoints.push(point)
+          this.warpedGridPoints[pointIndex] = point
         }
         this.warpPoint(column * spacing, row * spacing, point)
-        pointIndex += 1
       }
     }
-    for (let row = this.gridMinimumRow; row <= this.gridMaximumRow; row += 1) {
-      for (let column = this.gridMinimumColumn; column <= this.gridMaximumColumn; column += 1) {
-        let point = this.warpedGridPoints[pointIndex]
-        if (!point) {
-          point = { x: 0, y: 0 }
-          this.warpedGridPoints.push(point)
-        }
-        this.warpPoint(column * spacing, row * spacing, point)
-        pointIndex += 1
-      }
-    }
+    this.warpedGridPoints.length = gridPointCount(layout)
   }
 
   private drawGridLines(graphics: Graphics, lineWidth: number, red: number, green: number, blue: number, alpha: number): void {
@@ -591,21 +547,19 @@ export class GeometryFighter extends Component {
     const halfHeight = this.world.height * 0.5
     graphics.lineWidth = lineWidth
     graphics.strokeColor = this.rgb(red, green, blue, alpha)
-    let pointIndex = 0
-    for (let column = this.gridMinimumColumn; column <= this.gridMaximumColumn; column += 1) {
-      for (let row = this.gridMinimumRow; row <= this.gridMaximumRow; row += 1) {
-        const point = this.warpedGridPoints[pointIndex]
-        if (row === this.gridMinimumRow) graphics.moveTo(point.x, point.y)
+    const layout = this.gridLayout
+    for (let column = layout.minimumColumn; column <= layout.maximumColumn; column += 1) {
+      for (let row = layout.minimumRow; row <= layout.maximumRow; row += 1) {
+        const point = this.warpedGridPoints[gridPointIndex(layout, column, row)]
+        if (row === layout.minimumRow) graphics.moveTo(point.x, point.y)
         else graphics.lineTo(point.x, point.y)
-        pointIndex += 1
       }
     }
-    for (let row = this.gridMinimumRow; row <= this.gridMaximumRow; row += 1) {
-      for (let column = this.gridMinimumColumn; column <= this.gridMaximumColumn; column += 1) {
-        const point = this.warpedGridPoints[pointIndex]
-        if (column === this.gridMinimumColumn) graphics.moveTo(point.x, point.y)
+    for (let row = layout.minimumRow; row <= layout.maximumRow; row += 1) {
+      for (let column = layout.minimumColumn; column <= layout.maximumColumn; column += 1) {
+        const point = this.warpedGridPoints[gridPointIndex(layout, column, row)]
+        if (column === layout.minimumColumn) graphics.moveTo(point.x, point.y)
         else graphics.lineTo(point.x, point.y)
-        pointIndex += 1
       }
     }
     graphics.stroke()
@@ -618,9 +572,11 @@ export class GeometryFighter extends Component {
   private warpPoint(x: number, y: number, output: Vector): void {
     output.x = x
     output.y = y
-    for (const ripple of this.ripples) {
+    for (const ripple of this.activeGridRipples) {
       const dx = x - ripple.x
       const dy = y - ripple.y
+      const reach = ripple.radius + 90
+      if (Math.abs(dx) > reach || Math.abs(dy) > reach) continue
       const distance = Math.max(1, length(dx, dy))
       const band = Math.abs(distance - ripple.radius)
       if (band < 90) {
@@ -633,6 +589,7 @@ export class GeometryFighter extends Component {
     for (const enemy of this.activeBlackholes) {
       const dx = enemy.x - x
       const dy = enemy.y - y
+      if (Math.abs(dx) > 290 || Math.abs(dy) > 290) continue
       const distance = Math.max(20, length(dx, dy))
       if (distance < 290) {
         const force = (1 - distance / 290) * 38 * enemy.mass
@@ -839,7 +796,7 @@ export class GeometryFighter extends Component {
   private updateInterface(): void {
     const width = this.world.width
     const height = this.world.height
-    this.scoreLabel.node.setPosition(-width * 0.5 + 30, height * 0.5 - 34)
+    this.scoreLabel.node.setPosition(-width * 0.5 + 16, height * 0.5 - 34)
     this.setLabelText(this.scoreLabel, `SCORE  ${this.scoreText(this.world.score)}\nHIGH   ${this.scoreText(this.world.highScore)}`)
     this.statusLabel.node.setPosition(0, height * 0.5 - 30)
     this.setLabelText(this.statusLabel, `×${this.world.multiplier}    ◇ ${this.world.lives}    ✦ ${this.world.bombs}    W${weaponTier(this.world.score)}`)
