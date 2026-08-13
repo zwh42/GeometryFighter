@@ -1,7 +1,7 @@
 'use strict'
 
 const { spawnSync } = require('node:child_process')
-const { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } = require('node:fs')
+const { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } = require('node:fs')
 const { join, resolve } = require('node:path')
 
 const project = resolve(__dirname, '..')
@@ -29,13 +29,22 @@ const latestLog = readdirSync(logDirectory)
 
 const log = latestLog ? readFileSync(join(logDirectory, latestLog.name), 'utf8') : ''
 const finished = log.includes(`build Task (${outputName}) Finished`)
-const requiredFiles = ['game.js', 'game.json', 'application.js', 'assets/main/index.js']
+const requiredFiles = ['game.js', 'game.json', 'application.js', 'assets/main/index.js', 'project.config.json']
 const missing = requiredFiles.filter((name) => !existsSync(join(output, name)))
 
 if (!finished || missing.length > 0) {
   const reason = missing.length > 0 ? `missing ${missing.join(', ')}` : 'completion marker absent'
   throw new Error(`Cocos build failed (${reason}, process status ${String(result.status)})`)
 }
+
+const projectConfig = JSON.parse(readFileSync(join(project, 'project.config.json'), 'utf8'))
+if (typeof projectConfig.appid !== 'string' || !projectConfig.appid.startsWith('wx')) {
+  throw new Error('Missing release AppID in project.config.json')
+}
+const outputConfigPath = join(output, 'project.config.json')
+const outputConfig = JSON.parse(readFileSync(outputConfigPath, 'utf8'))
+outputConfig.appid = projectConfig.appid
+writeFileSync(outputConfigPath, `${JSON.stringify(outputConfig)}\n`)
 
 const musicDirectory = join(output, 'music')
 mkdirSync(musicDirectory, { recursive: true })
