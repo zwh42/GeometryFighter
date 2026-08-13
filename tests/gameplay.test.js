@@ -14,6 +14,20 @@ function fakePlatform() {
   }
 }
 
+function touchPlatform() {
+  var handlers = {}
+  return {
+    handlers: handlers,
+    onTouchStart: function (handler) { handlers.start = handler },
+    onTouchMove: function (handler) { handlers.move = handler },
+    onTouchEnd: function (handler) { handlers.end = handler },
+    onTouchCancel: function (handler) { handlers.cancel = handler },
+    onHide: function () {},
+    getStorageSync: function () { return 0 },
+    setStorageSync: function () {}
+  }
+}
+
 test('a round supports shooting, scoring, bombing and life loss', function () {
   var game = new GeometryGame(fakePlatform(), { width: 0, height: 0 }, {})
   game.resize(800, 450, 2)
@@ -55,4 +69,50 @@ test('the full enemy roster can be instantiated for wave progression', function 
   assert.deepEqual(game.enemies.map(function (enemy) { return enemy.type }), types)
   assert.equal(game.enemies[4].segments.length, 9)
   assert.equal(game.blackholes.length, 1)
+})
+
+test('one portrait thumb moves and fires along the same drag direction', function () {
+  // Given: an active portrait round controlled by one lower-screen touch.
+  var platform = touchPlatform()
+  var game = new GeometryGame(platform, { width: 0, height: 0 }, {})
+  game.resize(390, 844, 1)
+  game.startRound()
+  platform.handlers.start({
+    changedTouches: [{ identifier: 4, clientX: 90, clientY: 640 }]
+  })
+  platform.handlers.move({
+    touches: [{ identifier: 4, clientX: 138, clientY: 640 }]
+  })
+
+  // When: the player update consumes that one-thumb gesture.
+  game.player.fireTimer = 0
+  game.updatePlayer(0.016)
+
+  // Then: the ship moves right and emits a right-facing volley without a second thumb.
+  assert.ok(game.player.vx > 0)
+  assert.equal(game.bullets.length, 1)
+  assert.ok(Math.abs(game.bullets[0].angle) < 1e-9)
+
+  // When: the thumb returns to center without lifting.
+  platform.handlers.move({
+    touches: [{ identifier: 4, clientX: 90, clientY: 640 }]
+  })
+  game.player.fireTimer = 0
+  game.updatePlayer(0.016)
+
+  // Then: movement stops while the remembered right-facing heading keeps firing.
+  assert.deepEqual(game.input.move, { x: 0, y: 0 })
+  assert.equal(game.bullets.length, 2)
+  assert.ok(Math.abs(game.bullets[1].angle) < 1e-9)
+
+  // When: the controlling thumb is released.
+  platform.handlers.end({
+    changedTouches: [{ identifier: 4, clientX: 90, clientY: 640 }]
+  })
+  game.player.fireTimer = 0
+  game.updatePlayer(0.016)
+
+  // Then: the retained heading clears and no new volley is emitted.
+  assert.equal(game.bullets.length, 2)
+  assert.equal(game.hasFireHeading, false)
 })

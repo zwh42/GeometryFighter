@@ -3,6 +3,8 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { GeometryWorld, normalizeInto } = require('../assets/scripts/simulation.ts')
+const { COLORS } = require('../assets/scripts/design-tokens.ts')
+const { ENEMY } = require('../js/config.js')
 
 test('normalizeInto reuses caller storage for hot-loop vectors', function () {
   // Given: caller-owned storage used repeatedly by the simulation hot path.
@@ -89,11 +91,11 @@ test('fire bends a volley toward a live target inside the assistance cone', func
 })
 
 test('fire preserves player direction when every target is outside the assistance cone', function () {
-  // Given: a target well outside the narrow forward assistance cone.
+  // Given: a target beyond the visible 52-degree forward assistance sector.
   const world = new GeometryWorld()
   world.reset()
   world.events.length = 0
-  const target = world.spawnEnemy('grunt', 200, 70)
+  const target = world.spawnEnemy('grunt', 200, 110)
   target.spawnTimer = 0
 
   // When: the player fires straight to the right.
@@ -117,4 +119,36 @@ test('resolveCollisions forgives a four-pixel near miss', function () {
 
   // Then: the near miss counts as a hit without enlarging player collision damage.
   assert.equal(target.dead, true)
+})
+
+test('continuous automatic fire remains inside the mobile projectile budget', function () {
+  // Given: a long burst at the highest weapon tier.
+  const world = new GeometryWorld()
+  world.reset()
+  world.score = 60000
+  world.events.length = 0
+
+  // When: enough volleys are requested to exceed any legitimate on-screen lifetime.
+  for (let volley = 0; volley < 100; volley += 1) world.fire(0)
+
+  // Then: collision and rendering work stay within the production mobile ceiling.
+  assert.equal(world.bullets.length, 180)
+})
+
+test('enemy semantic colors stay aligned across Cocos and standalone runtimes', function () {
+  const world = new GeometryWorld()
+  const expected = {
+    wanderer: COLORS.violet,
+    grunt: COLORS.cyan,
+    weaver: COLORS.green,
+    spinner: COLORS.magenta,
+    snake: COLORS.yellow,
+    repulsar: COLORS.orange,
+    blackhole: COLORS.red
+  }
+
+  for (const [kind, color] of Object.entries(expected)) {
+    assert.equal(world.enemyColor(kind), color)
+    assert.equal(ENEMY[kind].color, color)
+  }
 })

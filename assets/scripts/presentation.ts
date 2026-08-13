@@ -1,9 +1,10 @@
 export const DESIGN_WIDTH = 720
 export const DESIGN_HEIGHT = 1280
-export const GRID_SPACING = 42
+export const GRID_SPACING = 76
 export const MAX_PARTICLES = 480
 export const MAX_RIPPLES = 12
 export const MAX_GRID_WARP_RIPPLES = 4
+export const STAR_COUNT = 48
 
 export interface GridBounds {
   readonly minimumColumn: number

@@ -1,3 +1,5 @@
+import { COLORS } from './design-tokens.ts'
+
 export type EnemyKind = 'wanderer' | 'grunt' | 'weaver' | 'spinner' | 'snake' | 'repulsar' | 'blackhole'
 export type GameState = 'title' | 'playing' | 'paused' | 'gameover'
 
@@ -59,6 +61,7 @@ export interface WorldEvent {
 export interface ControlState {
   move: Vector
   aim: Vector
+  engaged: boolean
   bomb: boolean
   start: boolean
   pause: boolean
@@ -86,8 +89,12 @@ const ENEMY_RADIUS: Record<EnemyKind, number> = {
 
 const BOMB_KILL_EVENT_LIMIT = 6
 const MAX_LIVE_ENEMIES = 100
+export const MAX_BULLETS = 180
 const AIM_ASSIST_RANGE_SQUARED = 900 * 900
-const AIM_ASSIST_CONE_TANGENT = Math.tan(Math.PI * 14 / 180)
+export const AIM_INPUT_THRESHOLD = 0.18
+export const AIM_HEADING_RESPONSE = 14
+export const AIM_ASSIST_HALF_ANGLE = Math.PI * 26 / 180
+const AIM_ASSIST_CONE_TANGENT = Math.tan(AIM_ASSIST_HALF_ANGLE)
 const BULLET_HIT_FORGIVENESS = 4
 
 export function clamp(value: number, low: number, high: number): number {
@@ -96,6 +103,10 @@ export function clamp(value: number, low: number, high: number): number {
 
 export function length(x: number, y: number): number {
   return Math.sqrt(x * x + y * y)
+}
+
+function angleDelta(from: number, to: number): number {
+  return Math.atan2(Math.sin(to - from), Math.cos(to - from))
 }
 
 export function normalized(x: number, y: number): Vector {
@@ -133,6 +144,8 @@ export class GeometryWorld {
   nextBomb = 100000
   spawnClock = 0
   fireClock = 0
+  fireHeading = 0
+  hasFireHeading = false
   seed = 0x7219af13
   player: Player = this.makePlayer()
   bullets: Bullet[] = []
@@ -179,11 +192,13 @@ export class GeometryWorld {
     this.nextBomb = 100000
     this.spawnClock = 0.7
     this.fireClock = 0
+    this.fireHeading = 0
+    this.hasFireHeading = false
     this.player = this.makePlayer()
     this.bullets.length = 0
     this.enemies.length = 0
     this.events.length = 0
-    this.pushEvent('wave', 0, 0, '#6ffcff', 1, 'GRID LEVEL 1')
+    this.pushEvent('wave', 0, 0, COLORS.gridHot, 1, 'GRID LEVEL 1')
   }
 
   update(dt: number, controls: ControlState): void {
@@ -244,7 +259,27 @@ export class GeometryWorld {
     player.x = clamp(player.x, -this.width * 0.5 + inset, this.width * 0.5 - inset)
     player.y = clamp(player.y, -this.height * 0.5 + inset, this.height * 0.5 - inset)
 
-    if (length(controls.aim.x, controls.aim.y) > 0.22) {
+    const portrait = this.height >= this.width
+    const moveStrength = length(controls.move.x, controls.move.y)
+    if (portrait) {
+      if (moveStrength > AIM_INPUT_THRESHOLD) {
+        const desiredHeading = Math.atan2(controls.move.y, controls.move.x)
+        if (this.hasFireHeading) {
+          this.fireHeading += angleDelta(this.fireHeading, desiredHeading) * clamp(dt * AIM_HEADING_RESPONSE, 0, 1)
+        } else {
+          this.fireHeading = desiredHeading
+          this.hasFireHeading = true
+        }
+      }
+      if (this.hasFireHeading && (controls.engaged || moveStrength > AIM_INPUT_THRESHOLD)) {
+        player.angle += angleDelta(player.angle, this.fireHeading) * clamp(dt * AIM_HEADING_RESPONSE, 0, 1)
+        this.fireClock -= dt
+        if (this.fireClock <= 0) this.fire(this.fireHeading)
+      } else {
+        this.fireClock = Math.min(this.fireClock, 0.04)
+      }
+      if (!controls.engaged && moveStrength <= AIM_INPUT_THRESHOLD) this.hasFireHeading = false
+    } else if (length(controls.aim.x, controls.aim.y) > 0.22) {
       player.angle = Math.atan2(controls.aim.y, controls.aim.x)
       this.fireClock -= dt
       if (this.fireClock <= 0) this.fire(player.angle)
@@ -278,6 +313,7 @@ export class GeometryWorld {
       bestDistanceSquared = distanceSquared
     }
     for (const offset of patterns) {
+      if (this.bullets.length >= MAX_BULLETS) break
       const shotAngle = firingAngle + offset
       const dx = Math.cos(shotAngle)
       const dy = Math.sin(shotAngle)
@@ -292,7 +328,7 @@ export class GeometryWorld {
       })
     }
     this.fireClock = tier >= 3 ? 0.075 : 0.09
-    this.pushEvent('shoot', this.player.x, this.player.y, '#fff36a', tier, '')
+    this.pushEvent('shoot', this.player.x, this.player.y, COLORS.yellow, tier, '')
   }
 
   updateBullets(dt: number): void {
@@ -392,7 +428,7 @@ export class GeometryWorld {
         bullet.life = 0
         enemy.mass = Math.min(2.3, enemy.mass + 0.025)
         enemy.radius = 26 * enemy.mass
-        this.pushEvent('blackhole', enemy.x, enemy.y, '#ff5be7', 1, '')
+        this.pushEvent('blackhole', enemy.x, enemy.y, COLORS.magenta, 1, '')
       }
     }
   }
@@ -454,12 +490,12 @@ export class GeometryWorld {
     while (this.score >= this.nextLife) {
       this.lives += 1
       this.nextLife += 75000
-      this.pushEvent('reward', 0, 64, '#7dff9b', 1, 'EXTRA LIFE')
+      this.pushEvent('reward', 0, 64, COLORS.green, 1, 'EXTRA LIFE')
     }
     while (this.score >= this.nextBomb) {
       this.bombs += 1
       this.nextBomb += 100000
-      this.pushEvent('reward', 0, 28, '#fff36a', 1, 'EXTRA BOMB')
+      this.pushEvent('reward', 0, 28, COLORS.yellow, 1, 'EXTRA BOMB')
     }
   }
 
@@ -470,7 +506,7 @@ export class GeometryWorld {
     this.kills = 0
     this.player.alive = false
     this.player.respawnTimer = 1.15
-    this.pushEvent('death', this.player.x, this.player.y, '#ffffff', 1, this.lives > 0 ? 'GRID BREACH' : 'GRID COLLAPSED')
+    this.pushEvent('death', this.player.x, this.player.y, COLORS.white, 1, this.lives > 0 ? 'GRID BREACH' : 'GRID COLLAPSED')
   }
 
   useBomb(): void {
@@ -492,14 +528,14 @@ export class GeometryWorld {
         presentationEvents += 1
       }
     }
-    this.pushEvent('bomb', this.player.x, this.player.y, '#d9fbff', 1, 'SMART BOMB')
+    this.pushEvent('bomb', this.player.x, this.player.y, COLORS.cyan, 1, 'SMART BOMB')
   }
 
   spawnWave(): void {
     const nextWave = 1 + Math.floor(this.elapsed / 20)
     if (nextWave !== this.wave) {
       this.wave = nextWave
-      this.pushEvent('wave', 0, 88, '#6ffcff', this.wave, `GRID LEVEL ${this.wave}`)
+      this.pushEvent('wave', 0, 88, COLORS.gridHot, this.wave, `GRID LEVEL ${this.wave}`)
     }
     const cap = Math.min(MAX_LIVE_ENEMIES, 24 + this.wave * 4)
     const living = this.enemies.reduce((count, enemy) => count + (enemy.dead ? 0 : 1), 0)
@@ -570,13 +606,13 @@ export class GeometryWorld {
   }
 
   enemyColor(kind: EnemyKind): string {
-    if (kind === 'wanderer') return '#43f6ff'
-    if (kind === 'grunt') return '#ff38d1'
-    if (kind === 'weaver') return '#73ff80'
-    if (kind === 'spinner') return '#ffef5b'
-    if (kind === 'snake') return '#ff8b45'
-    if (kind === 'repulsar') return '#a577ff'
-    return '#ff506d'
+    if (kind === 'wanderer') return COLORS.violet
+    if (kind === 'grunt') return COLORS.cyan
+    if (kind === 'weaver') return COLORS.green
+    if (kind === 'spinner') return COLORS.magenta
+    if (kind === 'snake') return COLORS.yellow
+    if (kind === 'repulsar') return COLORS.orange
+    return COLORS.red
   }
 
   cleanup(): void {

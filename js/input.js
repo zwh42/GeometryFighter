@@ -1,10 +1,12 @@
 const math = require('./math')
+const config = require('./config')
 
 class Input {
   constructor(platform) {
     this.platform = platform
     this.width = 0
     this.height = 0
+    this.singleHanded = false
     this.move = { x: 0, y: 0 }
     this.aim = { x: 0, y: 0 }
     this.left = this.createStick('move')
@@ -32,18 +34,21 @@ class Input {
   resize(width, height) {
     this.width = width
     this.height = height
+    this.singleHanded = height >= width
+    if (this.singleHanded && this.right.active) this.releaseStick(this.right)
     if (!this.left.active) {
-      this.left.baseX = 82
-      this.left.baseY = height - 74
+      this.left.baseX = this.singleHanded ? width * 0.5 : config.TOUCH.defaultSide
+      this.left.baseY = height - config.TOUCH.defaultBottom
       this.left.knobX = this.left.baseX
       this.left.knobY = this.left.baseY
     }
     if (!this.right.active) {
-      this.right.baseX = width - 82
-      this.right.baseY = height - 74
+      this.right.baseX = width - config.TOUCH.defaultSide
+      this.right.baseY = height - config.TOUCH.defaultBottom
       this.right.knobX = this.right.baseX
       this.right.knobY = this.right.baseY
     }
+    this.syncVectors()
   }
 
   bind() {
@@ -74,10 +79,12 @@ class Input {
     var touches = event.changedTouches || event.touches || []
     for (var i = 0; i < touches.length; i += 1) {
       var point = this.touchPoint(touches[i])
-      var bombX = this.width * 0.5
-      var bombY = this.height - 40
-      if (math.length(point.x - bombX, point.y - bombY) < 38) {
+      var bombX = this.singleHanded ? this.width - config.TOUCH.bombOffset : this.width * 0.5
+      var bombY = this.height - config.TOUCH.bombOffset
+      if (math.length(point.x - bombX, point.y - bombY) < config.TOUCH.bombHitRadius) {
         this.bombPressed = true
+      } else if (this.singleHanded) {
+        if (point.y >= this.height * config.TOUCH.portraitActivationYRatio && !this.left.active) this.activateStick(this.left, point)
       } else if (point.x < this.width * 0.5 && !this.left.active) {
         this.activateStick(this.left, point)
       } else if (!this.right.active) {
@@ -111,7 +118,7 @@ class Input {
     var dx = point.x - stick.baseX
     var dy = point.y - stick.baseY
     var direction = math.normalize(dx, dy)
-    var reach = Math.min(48, direction.length)
+    var reach = Math.min(config.TOUCH.travel, direction.length)
     stick.knobX = stick.baseX + direction.x * reach
     stick.knobY = stick.baseY + direction.y * reach
   }
@@ -136,7 +143,7 @@ class Input {
   vectorFor(stick) {
     if (!stick.active) return { x: 0, y: 0 }
     var direction = math.normalize(stick.knobX - stick.baseX, stick.knobY - stick.baseY)
-    var strength = math.clamp((direction.length - 7) / 35, 0, 1)
+    var strength = math.clamp((direction.length - config.TOUCH.deadZone) / config.TOUCH.responseSpan, 0, 1)
     return { x: direction.x * strength, y: direction.y * strength }
   }
 

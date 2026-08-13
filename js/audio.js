@@ -2,12 +2,30 @@ class AudioSystem {
   constructor(platform) {
     this.platform = platform
     this.context = null
+    this.music = null
     this.enabled = true
     this.nextBeat = 0
     this.beatStep = 0
   }
 
+  startMusic() {
+    if (this.music || !this.platform.createInnerAudioContext) return
+    try {
+      var music = this.platform.createInnerAudioContext()
+      if (!music.play) return
+      music.loop = true
+      music.autoplay = false
+      music.volume = 0.24
+      music.src = 'music/bgm.mp3'
+      this.music = music
+      music.play()
+    } catch (error) {
+      this.music = null
+    }
+  }
+
   unlock() {
+    this.startMusic()
     if (this.context || !this.enabled || !this.platform.createWebAudioContext) return
     try {
       this.context = this.platform.createWebAudioContext()
@@ -59,10 +77,10 @@ class AudioSystem {
   }
 
   update(time, active) {
-    if (!active || !this.context || time < this.nextBeat) return
+    if (!active || !this.context || this.music || time < this.nextBeat) return
     var notes = [110, 110, 164.81, 130.81, 110, 220, 146.83, 164.81]
     var frequency = notes[this.beatStep % notes.length]
-    this.tone(frequency, 0.16, 'triangle', 0.02, frequency * 0.72)
+    this.tone(frequency, 0.16, 'triangle', 0.045, frequency * 0.72)
     this.beatStep += 1
     this.nextBeat = time + 0.36
   }

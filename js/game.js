@@ -42,6 +42,8 @@ class GeometryGame {
     this.flash = 0
     this.shake = 0
     this.ambientTimer = 0
+    this.fireHeading = 0
+    this.hasFireHeading = false
     this.player = this.createPlayer(320, 180)
     this.bindLifecycle()
   }
@@ -122,6 +124,8 @@ class GeometryGame {
     this.gameOverTimer = 0
     this.flash = 0.28
     this.shake = 0
+    this.fireHeading = 0
+    this.hasFireHeading = false
     this.player = this.createPlayer(this.width * 0.5, this.height * 0.5)
     this.player.invulnerable = 1.8
     this.grid.pulse(this.player.x, this.player.y, 18, config.COLORS.cyan)
@@ -262,11 +266,36 @@ class GeometryGame {
     this.keepInside(player)
     player.fireTimer -= dt
 
-    var aimStrength = math.length(this.input.aim.x, this.input.aim.y)
-    if (aimStrength > 0.22) {
-      player.angle = Math.atan2(this.input.aim.y, this.input.aim.x)
+    var aim = this.input.aim
+    var aimStrength = math.length(aim.x, aim.y)
+    if (this.input.singleHanded) {
+      aim = this.input.move
+      aimStrength = math.length(aim.x, aim.y)
+      if (aimStrength > config.WORLD.aimInputThreshold) {
+        var desiredHeading = Math.atan2(aim.y, aim.x)
+        if (this.hasFireHeading) {
+          this.fireHeading += math.angleDelta(this.fireHeading, desiredHeading) * math.clamp(dt * config.WORLD.aimHeadingResponse, 0, 1)
+        } else {
+          this.fireHeading = desiredHeading
+          this.hasFireHeading = true
+        }
+      }
+      if (this.hasFireHeading && (this.input.left.active || aimStrength > config.WORLD.aimInputThreshold)) {
+        player.angle += math.angleDelta(player.angle, this.fireHeading) * math.clamp(dt * config.WORLD.aimHeadingResponse, 0, 1)
+        if (player.fireTimer <= 0) {
+          var directionalAngle = this.directionalFireAngle(this.fireHeading)
+          player.angle += math.angleDelta(player.angle, directionalAngle) * math.clamp(dt * config.WORLD.aimHeadingResponse, 0, 1)
+          this.fireWeapon(directionalAngle)
+          player.fireTimer = config.WORLD.fireRate
+        }
+      } else if (velocity.length > 20) {
+        player.angle += math.angleDelta(player.angle, Math.atan2(player.vy, player.vx)) * math.clamp(dt * 4, 0, 1)
+      }
+      if (!this.input.left.active && aimStrength <= config.WORLD.aimInputThreshold) this.hasFireHeading = false
+    } else if (aimStrength > 0.22) {
+      player.angle = Math.atan2(aim.y, aim.x)
       if (player.fireTimer <= 0) {
-        this.fireWeapon()
+        this.fireWeapon(player.angle)
         player.fireTimer = config.WORLD.fireRate
       }
     } else if (velocity.length > 20) {
@@ -284,9 +313,38 @@ class GeometryGame {
     }
   }
 
-  fireWeapon() {
+  directionalFireAngle(heading) {
+    var aimX = Math.cos(heading)
+    var aimY = Math.sin(heading)
+    var range = Math.max(this.width, this.height) * config.WORLD.aimAssistRangeRatio
+    var rangeSquared = range * range
+    var coneTangent = Math.tan(config.WORLD.aimAssistHalfAngle)
+    var firingAngle = heading
+    var bestAlignment = -1
+    var bestDistanceSquared = Infinity
+    for (var i = 0; i < this.enemies.length; i += 1) {
+      var enemy = this.enemies[i]
+      if (enemy.dead || enemy.spawn > 0) continue
+      var dx = enemy.x - this.player.x
+      var dy = enemy.y - this.player.y
+      var distanceSquared = dx * dx + dy * dy
+      if (distanceSquared > rangeSquared) continue
+      var forwardDistance = dx * aimX + dy * aimY
+      if (forwardDistance <= 0) continue
+      var sideDistance = Math.abs(dx * aimY - dy * aimX)
+      if (sideDistance > forwardDistance * coneTangent) continue
+      var alignment = forwardDistance * forwardDistance / distanceSquared
+      if (alignment < bestAlignment || (alignment === bestAlignment && distanceSquared >= bestDistanceSquared)) continue
+      firingAngle = Math.atan2(dy, dx)
+      bestAlignment = alignment
+      bestDistanceSquared = distanceSquared
+    }
+    return firingAngle
+  }
+
+  fireWeapon(angle) {
     var tier = math.weaponTierForScore(this.score)
-    var angle = this.player.angle
+    angle = angle === undefined ? this.player.angle : angle
     if (tier === 1) {
       this.spawnBullet(angle, 0)
     } else if (tier === 2) {
@@ -316,6 +374,7 @@ class GeometryGame {
       y: y,
       oldX: x,
       oldY: y,
+      angle: angle,
       vx: Math.cos(angle) * config.WORLD.bulletSpeed,
       vy: Math.sin(angle) * config.WORLD.bulletSpeed,
       radius: 2.8,

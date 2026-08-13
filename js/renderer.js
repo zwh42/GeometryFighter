@@ -3,7 +3,6 @@ const config = require('./config')
 
 class Renderer {
   constructor(canvas, context, input, grid, particles) {
-    this.canvas = canvas
     this.ctx = context
     this.input = input
     this.grid = grid
@@ -53,11 +52,17 @@ class Renderer {
       ctx.save()
       ctx.setTransform(game.dpr, 0, 0, game.dpr, 0, 0)
       ctx.globalAlpha = math.clamp(game.flash, 0, 0.72)
-      ctx.fillStyle = '#ffffff'
+      ctx.fillStyle = config.COLORS.white
       ctx.fillRect(0, 0, this.width, this.height)
       ctx.restore()
     }
     if (game.state !== 'playing' || game.paused) this.drawOverlay(game)
+  }
+
+  font(tokenName, size) {
+    var token = config.TYPOGRAPHY[tokenName]
+    var fontSize = size === undefined ? token.size : size
+    return (token.weight === 'normal' ? '' : token.weight + ' ') + fontSize + 'px ' + token.family
   }
 
   drawStars(time) {
@@ -179,26 +184,22 @@ class Renderer {
     ctx.rotate(player.angle)
     ctx.globalCompositeOperation = 'lighter'
     ctx.strokeStyle = config.COLORS.white
-    ctx.fillStyle = 'rgba(80, 235, 255, 0.15)'
-    ctx.lineWidth = 2
     ctx.shadowColor = config.COLORS.cyan
-    ctx.shadowBlur = 15
-    ctx.beginPath()
-    ctx.moveTo(15, 0)
-    ctx.lineTo(-8, -10)
-    ctx.lineTo(-3, 0)
-    ctx.lineTo(-8, 10)
-    ctx.closePath()
-    ctx.fill()
-    ctx.stroke()
-    ctx.strokeStyle = config.COLORS.orange
-    ctx.shadowColor = config.COLORS.orange
-    ctx.beginPath()
-    ctx.moveTo(-6, -5)
-    ctx.lineTo(-14 - Math.random() * 5, 0)
-    ctx.lineTo(-6, 5)
-    ctx.stroke()
+    ctx.shadowBlur = config.FIGHTER.glowBlur
+    this.drawFighterPath(config.FIGHTER.outerPath, config.FIGHTER.outerStroke)
+    this.drawFighterPath(config.FIGHTER.innerPath, config.FIGHTER.innerStroke)
     ctx.restore()
+  }
+
+  drawFighterPath(points, stroke) {
+    var ctx = this.ctx
+    ctx.lineWidth = stroke
+    ctx.beginPath()
+    for (var index = 0; index < points.length; index += 1) {
+      if (index === 0) ctx.moveTo(points[index][0], points[index][1])
+      else ctx.lineTo(points[index][0], points[index][1])
+    }
+    ctx.stroke()
   }
 
   drawEnemies(enemies, time) {
@@ -227,30 +228,39 @@ class Renderer {
     var ctx = this.ctx
     this.prepareEnemy(enemy)
     if (enemy.type === 'wanderer') {
-      ctx.beginPath()
-      ctx.moveTo(enemy.radius, 0)
-      ctx.lineTo(0, enemy.radius * 0.72)
-      ctx.lineTo(-enemy.radius, 0)
-      ctx.lineTo(0, -enemy.radius * 0.72)
-      ctx.closePath()
-      ctx.stroke()
-    } else if (enemy.type === 'grunt') {
-      this.polygon(enemy.radius, 4, Math.PI / 4)
-      this.polygon(enemy.radius * 0.45, 4, Math.PI / 4)
-    } else if (enemy.type === 'weaver') {
-      ctx.strokeRect(-enemy.radius * 0.65, -enemy.radius * 0.65, enemy.radius * 1.3, enemy.radius * 1.3)
-      ctx.rotate(Math.PI / 4)
-      ctx.strokeRect(-enemy.radius * 0.48, -enemy.radius * 0.48, enemy.radius * 0.96, enemy.radius * 0.96)
-    } else if (enemy.type === 'spinner') {
       for (var arm = 0; arm < 4; arm += 1) {
         ctx.rotate(Math.PI / 2)
         ctx.beginPath()
-        ctx.moveTo(0, 0)
-        ctx.quadraticCurveTo(enemy.radius * 0.25, -enemy.radius * 0.65, enemy.radius, -enemy.radius * 0.15)
+        ctx.moveTo(2, 0)
+        ctx.lineTo(enemy.radius * 0.42, -enemy.radius * 0.32)
+        ctx.lineTo(enemy.radius, -enemy.radius * 0.08)
+        ctx.lineTo(enemy.radius * 0.58, enemy.radius * 0.2)
         ctx.stroke()
       }
+    } else if (enemy.type === 'grunt') {
+      this.polygon(enemy.radius, 4, Math.PI / 4)
       ctx.beginPath()
-      ctx.arc(0, 0, 3, 0, Math.PI * 2)
+      ctx.moveTo(-enemy.radius * 0.7, 0)
+      ctx.lineTo(enemy.radius * 0.7, 0)
+      ctx.moveTo(0, -enemy.radius * 0.7)
+      ctx.lineTo(0, enemy.radius * 0.7)
+      ctx.stroke()
+    } else if (enemy.type === 'weaver') {
+      ctx.strokeRect(-enemy.radius * 0.65, -enemy.radius * 0.65, enemy.radius * 1.3, enemy.radius * 1.3)
+      this.polygon(enemy.radius * 0.74, 4, Math.PI / 4)
+      ctx.beginPath()
+      ctx.moveTo(-enemy.radius * 0.65, -enemy.radius * 0.65)
+      ctx.lineTo(0, -enemy.radius * 0.74)
+      ctx.moveTo(enemy.radius * 0.65, -enemy.radius * 0.65)
+      ctx.lineTo(enemy.radius * 0.74, 0)
+      ctx.stroke()
+    } else if (enemy.type === 'spinner') {
+      ctx.strokeRect(-enemy.radius * 0.72, -enemy.radius * 0.72, enemy.radius * 1.44, enemy.radius * 1.44)
+      ctx.beginPath()
+      ctx.moveTo(-enemy.radius * 0.72, -enemy.radius * 0.72)
+      ctx.lineTo(enemy.radius * 0.72, enemy.radius * 0.72)
+      ctx.moveTo(enemy.radius * 0.72, -enemy.radius * 0.72)
+      ctx.lineTo(-enemy.radius * 0.72, enemy.radius * 0.72)
       ctx.stroke()
     } else if (enemy.type === 'snake') {
       ctx.restore()
@@ -258,18 +268,21 @@ class Renderer {
       return
     } else if (enemy.type === 'repulsar') {
       ctx.beginPath()
-      ctx.arc(0, 0, enemy.radius, 0, Math.PI * 2)
+      ctx.moveTo(enemy.radius, 0)
+      ctx.lineTo(enemy.radius * 0.15, -enemy.radius * 0.62)
+      ctx.lineTo(-enemy.radius * 0.72, -enemy.radius * 0.42)
+      ctx.lineTo(-enemy.radius * 0.35, 0)
+      ctx.lineTo(-enemy.radius * 0.72, enemy.radius * 0.42)
+      ctx.lineTo(enemy.radius * 0.15, enemy.radius * 0.62)
+      ctx.closePath()
       ctx.stroke()
+      ctx.strokeStyle = config.COLORS.cyan
+      ctx.shadowColor = config.COLORS.cyan
       ctx.beginPath()
-      ctx.arc(0, 0, enemy.radius * 0.42, 0, Math.PI * 2)
+      ctx.moveTo(-enemy.radius * 0.72, -enemy.radius * 0.42)
+      ctx.lineTo(-enemy.radius, 0)
+      ctx.lineTo(-enemy.radius * 0.72, enemy.radius * 0.42)
       ctx.stroke()
-      for (var ray = 0; ray < 8; ray += 1) {
-        ctx.rotate(Math.PI / 4)
-        ctx.beginPath()
-        ctx.moveTo(enemy.radius + 2, 0)
-        ctx.lineTo(enemy.radius + 7 + Math.sin(time * 8) * 2, 0)
-        ctx.stroke()
-      }
     } else if (enemy.type === 'blackhole') {
       this.drawBlackhole(enemy, time)
     }
@@ -313,13 +326,26 @@ class Renderer {
       ctx.strokeRect(-size * 0.7, -size * 0.7, size * 1.4, size * 1.4)
       ctx.restore()
     }
+    ctx.strokeStyle = config.COLORS.cyan
+    ctx.shadowColor = config.COLORS.cyan
+    ctx.save()
+    ctx.translate(enemy.x, enemy.y)
+    ctx.rotate(enemy.angle)
+    ctx.beginPath()
+    ctx.moveTo(enemy.radius, 0)
+    ctx.lineTo(-enemy.radius * 0.55, -enemy.radius * 0.72)
+    ctx.lineTo(-enemy.radius * 0.25, 0)
+    ctx.lineTo(-enemy.radius * 0.55, enemy.radius * 0.72)
+    ctx.closePath()
+    ctx.stroke()
+    ctx.restore()
     ctx.restore()
   }
 
   drawBlackhole(enemy, time) {
     var ctx = this.ctx
     var radius = enemy.radius + enemy.mass * 0.55
-    ctx.fillStyle = '#000000'
+    ctx.fillStyle = config.COLORS.background
     ctx.beginPath()
     ctx.arc(0, 0, radius * 0.72, 0, Math.PI * 2)
     ctx.fill()
@@ -330,6 +356,10 @@ class Renderer {
       ctx.arc(0, 0, radius + ring * 5, time * (1.2 + ring * 0.3) + ring, time * (1.2 + ring * 0.3) + ring + Math.PI * (1.15 + ring * 0.17))
       ctx.stroke()
     }
+    ctx.strokeStyle = config.COLORS.violet
+    ctx.beginPath()
+    ctx.arc(0, 0, radius * 0.48, -time * 1.7, -time * 1.7 + Math.PI * 1.35)
+    ctx.stroke()
   }
 
   drawPopups(popups) {
@@ -337,7 +367,7 @@ class Renderer {
     ctx.save()
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.font = 'bold 13px monospace'
+    ctx.font = this.font('popup')
     for (var i = 0; i < popups.length; i += 1) {
       var popup = popups[i]
       ctx.globalAlpha = math.clamp(popup.life * 1.8, 0, 1)
@@ -357,23 +387,23 @@ class Renderer {
     ctx.shadowColor = config.COLORS.hud
     ctx.shadowBlur = 7
     ctx.textBaseline = 'top'
-    ctx.font = 'bold 13px monospace'
+    ctx.font = this.font('hudLabel')
     ctx.textAlign = 'left'
     ctx.fillText('SCORE', 28, top)
-    ctx.font = 'bold 22px monospace'
+    ctx.font = this.font('hudValue')
     ctx.fillText(this.formatScore(game.score), 28, top + 13)
     ctx.textAlign = 'right'
-    ctx.font = 'bold 13px monospace'
+    ctx.font = this.font('hudLabel')
     ctx.fillText('HIGH SCORE', this.width - 28, top)
-    ctx.font = 'bold 22px monospace'
+    ctx.font = this.font('hudValue')
     ctx.fillText(this.formatScore(game.highScore), this.width - 28, top + 13)
     ctx.textAlign = 'center'
-    ctx.font = 'bold 15px monospace'
+    ctx.font = this.font('hudMultiplier')
     ctx.fillText('×' + game.multiplier, this.width * 0.5, top + 6)
     this.drawLifeBombIcons(game, top + 31)
     if (game.messageTimer > 0) {
       ctx.globalAlpha = math.clamp(game.messageTimer, 0, 1)
-      ctx.font = 'bold 20px monospace'
+      ctx.font = this.font('message')
       ctx.fillStyle = config.COLORS.white
       ctx.shadowColor = config.COLORS.cyan
       ctx.fillText(game.message, this.width * 0.5, 71)
@@ -420,46 +450,70 @@ class Renderer {
 
   drawControls(game) {
     if (game.state !== 'playing' || game.paused) return
-    this.drawStick(this.input.left, config.COLORS.cyan)
-    this.drawStick(this.input.right, config.COLORS.magenta)
+    var heading = this.input.singleHanded && game.hasFireHeading ? game.fireHeading : null
+    this.drawStick(this.input.left, config.COLORS.cyan, heading)
+    if (!this.input.singleHanded) this.drawStick(this.input.right, config.COLORS.magenta, null)
     var ctx = this.ctx
-    var x = this.width * 0.5
-    var y = this.height - 40
+    var x = this.input.singleHanded ? this.width - config.TOUCH.bombOffset : this.width * 0.5
+    var y = this.height - config.TOUCH.bombOffset
     ctx.save()
-    ctx.globalAlpha = 0.3
+    ctx.globalAlpha = 0.024
     ctx.strokeStyle = config.COLORS.orange
-    ctx.fillStyle = 'rgba(255, 120, 35, 0.08)'
+    ctx.fillStyle = config.COLORS.orange
     ctx.shadowColor = config.COLORS.orange
-    ctx.shadowBlur = 8
-    ctx.lineWidth = 1.5
+    ctx.shadowBlur = config.TOUCH.bombGlow
+    ctx.lineWidth = config.TOUCH.bombStroke
     ctx.beginPath()
-    ctx.arc(x, y, 27, 0, Math.PI * 2)
+    ctx.arc(x, y, config.TOUCH.bombRadius, 0, Math.PI * 2)
     ctx.fill()
+    ctx.globalAlpha = 0.3
     ctx.stroke()
     ctx.globalAlpha = 0.55
     ctx.fillStyle = config.COLORS.orange
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.font = 'bold 9px monospace'
+    ctx.font = this.font('controlLabel')
     ctx.fillText('BOMB', x, y)
     ctx.restore()
   }
 
-  drawStick(stick, color) {
+  drawStick(stick, color, heading) {
     var ctx = this.ctx
     ctx.save()
+    if (stick.active && heading !== null && heading !== undefined) {
+      var sectorRadius = config.TOUCH.sectorRadius
+      ctx.globalAlpha = 0.34
+      ctx.strokeStyle = color
+      ctx.lineWidth = config.TOUCH.sectorStroke
+      ctx.shadowColor = color
+      ctx.shadowBlur = config.TOUCH.sectorGlow
+      ctx.beginPath()
+      ctx.moveTo(stick.baseX, stick.baseY)
+      ctx.lineTo(stick.baseX + Math.cos(heading - config.WORLD.aimAssistHalfAngle) * sectorRadius, stick.baseY + Math.sin(heading - config.WORLD.aimAssistHalfAngle) * sectorRadius)
+      ctx.moveTo(stick.baseX, stick.baseY)
+      ctx.lineTo(stick.baseX + Math.cos(heading + config.WORLD.aimAssistHalfAngle) * sectorRadius, stick.baseY + Math.sin(heading + config.WORLD.aimAssistHalfAngle) * sectorRadius)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.arc(stick.baseX, stick.baseY, sectorRadius, heading - config.WORLD.aimAssistHalfAngle, heading + config.WORLD.aimAssistHalfAngle)
+      ctx.stroke()
+      ctx.globalAlpha = 0.55
+      ctx.beginPath()
+      ctx.moveTo(stick.baseX, stick.baseY)
+      ctx.lineTo(stick.baseX + Math.cos(heading) * config.TOUCH.headingRay, stick.baseY + Math.sin(heading) * config.TOUCH.headingRay)
+      ctx.stroke()
+    }
     ctx.globalAlpha = stick.active ? 0.48 : 0.2
     ctx.strokeStyle = color
     ctx.fillStyle = color
-    ctx.lineWidth = 1.4
+    ctx.lineWidth = config.TOUCH.stickStroke
     ctx.shadowColor = color
-    ctx.shadowBlur = 7
+    ctx.shadowBlur = config.TOUCH.stickGlow
     ctx.beginPath()
-    ctx.arc(stick.baseX, stick.baseY, 48, 0, Math.PI * 2)
+    ctx.arc(stick.baseX, stick.baseY, config.TOUCH.ringRadius, 0, Math.PI * 2)
     ctx.stroke()
     ctx.globalAlpha *= 1.45
     ctx.beginPath()
-    ctx.arc(stick.knobX, stick.knobY, 17, 0, Math.PI * 2)
+    ctx.arc(stick.knobX, stick.knobY, config.TOUCH.knobRadius, 0, Math.PI * 2)
     ctx.stroke()
     ctx.globalAlpha *= 0.3
     ctx.fill()
@@ -470,8 +524,10 @@ class Renderer {
     var ctx = this.ctx
     ctx.save()
     ctx.setTransform(game.dpr, 0, 0, game.dpr, 0, 0)
-    ctx.fillStyle = 'rgba(0, 3, 12, 0.67)'
+    ctx.globalAlpha = 0.67
+    ctx.fillStyle = config.COLORS.background
     ctx.fillRect(0, 0, this.width, this.height)
+    ctx.globalAlpha = 1
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     if (game.state === 'title') {
@@ -482,9 +538,9 @@ class Renderer {
       ctx.fillStyle = config.COLORS.white
       ctx.shadowColor = config.COLORS.cyan
       ctx.shadowBlur = 15
-      ctx.font = 'bold 34px monospace'
+      ctx.font = this.font('pauseTitle')
       ctx.fillText('GRID PAUSED', this.width * 0.5, this.height * 0.42)
-      ctx.font = '14px sans-serif'
+      ctx.font = this.font('body')
       ctx.fillText('轻触继续', this.width * 0.5, this.height * 0.58)
     }
     ctx.restore()
@@ -492,28 +548,28 @@ class Renderer {
 
   overlayTitle(game) {
     var ctx = this.ctx
-    var titleSize = math.clamp(this.width * 0.055, 30, 54)
+    var titleSize = math.clamp(this.width * 0.055, config.TYPOGRAPHY.title.minSize, config.TYPOGRAPHY.title.maxSize)
     ctx.fillStyle = config.COLORS.white
     ctx.strokeStyle = config.COLORS.cyan
     ctx.shadowColor = config.COLORS.cyan
     ctx.shadowBlur = 22
     ctx.lineWidth = 1.2
-    ctx.font = 'bold ' + titleSize + 'px monospace'
+    ctx.font = this.font('title', titleSize)
     ctx.fillText('GEOMETRY', this.width * 0.5, this.height * 0.32)
     ctx.fillStyle = config.COLORS.hud
     ctx.shadowColor = config.COLORS.hud
     ctx.fillText('FIGHTER', this.width * 0.5, this.height * 0.32 + titleSize * 0.9)
     ctx.shadowBlur = 8
     ctx.fillStyle = config.COLORS.cyan
-    ctx.font = 'bold 13px monospace'
+    ctx.font = this.font('subtitle')
     ctx.fillText('RETRO GRID // SURVIVAL', this.width * 0.5, this.height * 0.32 + titleSize * 1.62)
     ctx.fillStyle = config.COLORS.white
-    ctx.font = '14px sans-serif'
-    ctx.fillText('左侧移动 · 右侧瞄准射击 · 中央释放炸弹', this.width * 0.5, this.height * 0.71)
+    ctx.font = this.font('body')
+    ctx.fillText('竖屏单手 · 拖动方向自动射击 · 保持倍率', this.width * 0.5, this.height * 0.71)
     var pulse = 0.55 + Math.sin(game.time * 4) * 0.3
     ctx.globalAlpha = pulse
     ctx.fillStyle = config.COLORS.hud
-    ctx.font = 'bold 16px monospace'
+    ctx.font = this.font('prompt')
     ctx.fillText('TOUCH TO ENGAGE', this.width * 0.5, this.height * 0.82)
   }
 
@@ -522,19 +578,19 @@ class Renderer {
     ctx.fillStyle = config.COLORS.red
     ctx.shadowColor = config.COLORS.red
     ctx.shadowBlur = 18
-    ctx.font = 'bold 38px monospace'
+    ctx.font = this.font('gameOverTitle')
     ctx.fillText('GRID COLLAPSED', this.width * 0.5, this.height * 0.34)
     ctx.shadowBlur = 7
     ctx.fillStyle = config.COLORS.hud
-    ctx.font = 'bold 18px monospace'
+    ctx.font = this.font('gameOverScore')
     ctx.fillText('SCORE  ' + this.formatScore(game.score), this.width * 0.5, this.height * 0.52)
     ctx.fillStyle = config.COLORS.white
-    ctx.font = '13px sans-serif'
+    ctx.font = this.font('bodyCompact')
     ctx.fillText('存活 ' + Math.floor(game.elapsed) + ' 秒 · 击破 ' + game.totalKills + ' 个目标', this.width * 0.5, this.height * 0.62)
     if (game.gameOverTimer > 0.7) {
       ctx.globalAlpha = 0.55 + Math.sin(game.time * 4) * 0.3
       ctx.fillStyle = config.COLORS.hud
-      ctx.font = 'bold 15px monospace'
+      ctx.font = this.font('gameOverPrompt')
       ctx.fillText('TOUCH TO RESTART', this.width * 0.5, this.height * 0.78)
     }
   }
