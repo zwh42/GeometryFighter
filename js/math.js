@@ -16,17 +16,6 @@ function normalize(x, y) {
   return { x: x / size, y: y / size, length: size }
 }
 
-function distanceSquared(a, b) {
-  var dx = a.x - b.x
-  var dy = a.y - b.y
-  return dx * dx + dy * dy
-}
-
-function circlesOverlap(a, b) {
-  var radius = a.radius + b.radius
-  return distanceSquared(a, b) <= radius * radius
-}
-
 function randomRange(min, max) {
   return min + Math.random() * (max - min)
 }
@@ -78,8 +67,6 @@ module.exports = {
   lerp: lerp,
   length: length,
   normalize: normalize,
-  distanceSquared: distanceSquared,
-  circlesOverlap: circlesOverlap,
   randomRange: randomRange,
   randomInt: randomInt,
   pick: pick,

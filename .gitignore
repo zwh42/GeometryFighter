@@ -12,6 +12,8 @@ library/
 temp/
 local/
 profiles/
+.omo/
+test-results/
 
 # 本地环境文件
 .env

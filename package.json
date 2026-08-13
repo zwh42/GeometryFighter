@@ -1,10 +1,11 @@
 {
   "name": "geometry-fighter",
   "uuid": "0c5a567f-41ae-4ece-b248-6ea928f57073",
-  "version": "3.8.8",
+  "version": "1.5.2",
   "private": true,
-  "description": "A Cocos Creator 3.8 WebGL neon twin-stick shooter for WeChat Mini Game",
+  "description": "A Cocos Creator 3.8 WebGL neon portrait one-thumb shooter for WeChat Mini Game",
   "scripts": {
+    "build:wechat": "node scripts/build-wechat.js",
     "test": "node --test tests/*.test.js",
     "check": "npm run check:js && npm run check:types",
     "check:js": "node scripts/check-js.js",
