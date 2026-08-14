@@ -5,7 +5,7 @@ const { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync
 const { join, resolve } = require('node:path')
 
 const project = resolve(__dirname, '..')
-const outputName = process.argv[2] || 'wechat-v1-5-2'
+const outputName = process.argv[2] || 'wechat-v1-5-5'
 if (!/^[a-zA-Z0-9._-]+$/.test(outputName)) throw new Error(`Invalid output name: ${outputName}`)
 
 const creator = process.env.COCOS_CREATOR_PATH || '/Applications/Cocos/Creator/3.8.8/CocosCreator.app/Contents/MacOS/CocosCreator'
