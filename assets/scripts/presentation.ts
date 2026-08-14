@@ -1,5 +1,6 @@
 export const DESIGN_WIDTH = 720
 export const DESIGN_HEIGHT = 1280
+export const RENDER_PIXEL_RATIO = 1
 export const GRID_SPACING = 76
 export const MAX_PARTICLES = 480
 export const MAX_RIPPLES = 12

@@ -77,14 +77,15 @@ const ENEMY_VALUE: Record<EnemyKind, number> = {
   blackhole: 1000
 }
 
-const ENEMY_RADIUS: Record<EnemyKind, number> = {
-  wanderer: 9,
-  grunt: 13,
-  weaver: 14,
-  spinner: 15,
-  snake: 15,
-  repulsar: 18,
-  blackhole: 26
+const PLAYER_LOGICAL_RADIUS = 10
+const ENEMY_LOGICAL_RADIUS: Record<EnemyKind, number> = {
+  wanderer: 11,
+  grunt: 12,
+  weaver: 12,
+  spinner: 13,
+  snake: 10,
+  repulsar: 15,
+  blackhole: 18
 }
 
 const BOMB_KILL_EVENT_LIMIT = 6
@@ -147,13 +148,20 @@ export class GeometryWorld {
   fireHeading = 0
   hasFireHeading = false
   seed = 0x7219af13
+  private unitsPerPixel = 1
   player: Player = this.makePlayer()
   bullets: Bullet[] = []
   enemies: Enemy[] = []
   events: WorldEvent[] = []
   private readonly normalizationScratch: Vector = { x: 0, y: 0 }
 
-  resize(width: number, height: number): void {
+  resize(width: number, height: number, unitsPerPixel = 1): void {
+    const nextUnitsPerPixel = Math.max(0.01, unitsPerPixel)
+    const radiusScale = nextUnitsPerPixel / this.unitsPerPixel
+    this.unitsPerPixel = nextUnitsPerPixel
+    this.player.radius *= radiusScale
+    for (const bullet of this.bullets) bullet.radius *= radiusScale
+    for (const enemy of this.enemies) enemy.radius *= radiusScale
     this.width = Math.max(640, width)
     this.height = Math.max(360, height)
     this.player.x = clamp(this.player.x, -this.width * 0.48, this.width * 0.48)
@@ -167,7 +175,7 @@ export class GeometryWorld {
       vx: 0,
       vy: 0,
       angle: 0,
-      radius: 11,
+      radius: PLAYER_LOGICAL_RADIUS * this.unitsPerPixel,
       alive: true,
       invulnerable: 1.8,
       respawnTimer: 0
@@ -318,13 +326,13 @@ export class GeometryWorld {
       const dx = Math.cos(shotAngle)
       const dy = Math.sin(shotAngle)
       this.bullets.push({
-        x: this.player.x + dx * 19,
-        y: this.player.y + dy * 19,
+        x: this.player.x + dx * 19 * this.unitsPerPixel,
+        y: this.player.y + dy * 19 * this.unitsPerPixel,
         vx: dx * 790,
         vy: dy * 790,
         angle: shotAngle,
         life: 1.2,
-        radius: tier >= 4 ? 4 : 3
+        radius: (tier >= 4 ? 4 : 3) * this.unitsPerPixel
       })
     }
     this.fireClock = tier >= 3 ? 0.075 : 0.09
@@ -427,7 +435,7 @@ export class GeometryWorld {
       if (distance < enemy.radius * 0.72) {
         bullet.life = 0
         enemy.mass = Math.min(2.3, enemy.mass + 0.025)
-        enemy.radius = 26 * enemy.mass
+        enemy.radius = ENEMY_LOGICAL_RADIUS.blackhole * this.unitsPerPixel * enemy.mass
         this.pushEvent('blackhole', enemy.x, enemy.y, COLORS.magenta, 1, '')
       }
     }
@@ -455,7 +463,7 @@ export class GeometryWorld {
       if (bullet.life <= 0) continue
       for (const enemy of this.enemies) {
         if (enemy.dead || enemy.spawnTimer > 0) continue
-        const hitRadius = enemy.radius + bullet.radius + BULLET_HIT_FORGIVENESS
+        const hitRadius = enemy.radius + bullet.radius + BULLET_HIT_FORGIVENESS * this.unitsPerPixel
         const dx = bullet.x - enemy.x
         const dy = bullet.y - enemy.y
         if (dx * dx + dy * dy > hitRadius * hitRadius) continue
@@ -518,7 +526,7 @@ export class GeometryWorld {
       if (enemy.kind === 'blackhole') {
         enemy.health -= 5
         enemy.mass *= 0.7
-        enemy.radius = Math.max(22, enemy.radius * 0.7)
+        enemy.radius = Math.max(ENEMY_LOGICAL_RADIUS.blackhole * this.unitsPerPixel * 0.85, enemy.radius * 0.7)
         if (enemy.health <= 0) {
           this.killEnemy(enemy, presentationEvents < BOMB_KILL_EVENT_LIMIT)
           presentationEvents += 1
@@ -590,7 +598,7 @@ export class GeometryWorld {
       vx: 0,
       vy: 0,
       angle: 0,
-      radius: ENEMY_RADIUS[kind],
+      radius: ENEMY_LOGICAL_RADIUS[kind] * this.unitsPerPixel,
       speed: baseSpeed * speedScale,
       health,
       value: ENEMY_VALUE[kind],

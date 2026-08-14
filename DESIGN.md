@@ -35,9 +35,9 @@ Geometry Fighter is a dark neon arcade instrument: a near-black arena, electrica
 | Missile / charge | `orange` | `#ff9f2f` | Homing missiles and high-speed enemy tells |
 | Danger | `red` | `#ff554d` | Black holes, damage, collapse |
 
-Colors are centralized in `assets/scripts/design-tokens.ts` for Cocos and `js/config.js` for the standalone runtime. Alpha variants may be derived for fills and glow, but semantic hues must come from this table.
+Colors are centralized in `assets/scripts/design-tokens.ts`. Alpha variants may be derived for fills and glow, but semantic hues must come from this table.
 
-Typography, touch geometry, and fighter primitives follow the same rule: Cocos consumes the typed token modules under `assets/scripts/`, while the standalone renderer consumes `TYPOGRAPHY`, `TOUCH`, and `FIGHTER` from `js/config.js`.
+Typography, touch geometry, and fighter primitives follow the same rule: Cocos consumes the typed token modules under `assets/scripts/`.
 
 ## 3. Typography
 
@@ -56,11 +56,11 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 ## 4. Spacing & Layout
 
 - Base unit: 4 px.
-- Arena inset: 15 px runtime / 8 px Cocos design space.
+- Arena inset: 8 px in Cocos design space.
 - Portrait HUD edge: 20 px; landscape HUD edge: 28 px.
 - Portrait HUD top: `max(18 px, safe-area top + 8 px)`; temporary combat messages begin 68 px below that anchor. Cocos applies the same rule in design-resolution units through `sys.getSafeAreaRect()`.
 - The single movement control occupies the lower playfield; the lower-middle region remains clear so supply telemetry cannot be mistaken for a button.
-- The renderer scales to the full viewport and uses centered world coordinates in Cocos and screen coordinates in the standalone runtime.
+- The renderer scales to the full viewport and uses centered world coordinates.
 - Responsive targets: 390 × 844 portrait, 720 × 1280 design portrait, and 800 × 450 landscape developer mode.
 
 ## 5. Components
@@ -118,7 +118,7 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 - **States**: title, playing, paused, game over, missile, overdrive, ally wing, active directional sector, and center-hold fire.
 - **Layout**: the arena may extend behind notches, while telemetry is anchored below the platform safe-area inset; transient messages stack below the telemetry band rather than overlapping it.
 - **Interaction**: in portrait, a drag above the dead zone updates both movement and a smoothed remembered heading. Returning the knob to center stops movement but keeps firing along that heading while the touch remains held. Releasing the touch stops fire. Each volley may choose one live enemy or super supply inside a 52-degree forward sector, but every projectile becomes ballistic at spawn and never follows that target.
-- **Physical tuning**: the floating stick uses a 48 px travel/ring, 17 px knob, 7 px dead zone, and 35 px response span. Cocos converts those physical pixels into design-resolution units with the current view scale so the same thumb motion has the same response in both runtimes.
+- **Physical tuning**: the floating stick uses a 48 px travel/ring, 17 px knob, 7 px dead zone, and 35 px response span. Cocos converts those physical pixels into design-resolution units with the current view scale.
 - **Visible bounds**: landscape sticks anchor to the physical canvas bounds, not unused vertical design space, so each 48 px ring retains at least 26 px of bottom clearance.
 - **Feedback**: while the floating stick is active, two faint rays and a connecting arc expose the eligible firing sector. The center ray shows the remembered heading even when the knob returns to center.
 - **Accessibility**: the sector lowers thumb precision demands without hiding directional intent or selecting targets behind the player. The opening guidance fades during seconds 3.5–4.5 and is then removed from the battlefield. Keyboard and landscape twin-stick controls remain available for development.
@@ -167,4 +167,4 @@ Strategy: mixed luminous depth. The arena is flat and near-black; entities gain 
 
 | Item | Location | Why accepted | Owner / Exit |
 |---|---|---|---|
-| Automatic OS reduced-motion detection | WeChat Canvas and Cocos runtime | Existing platform layer exposes no stable cross-runtime preference signal; pursuit motion is also gameplay-critical. | Revisit when both targets expose the same preference API; reduce decorative particles while preserving trajectories. |
+| Automatic OS reduced-motion detection | Cocos WeChat runtime | The platform layer exposes no stable preference signal; pursuit motion is also gameplay-critical. | Revisit when the target exposes a suitable preference API; reduce decorative particles while preserving trajectories. |

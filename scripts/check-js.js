@@ -17,8 +17,6 @@ function collectJavaScriptFiles(directory) {
 }
 
 const files = [
-  'game.js',
-  ...collectJavaScriptFiles('js'),
   ...collectJavaScriptFiles('scripts'),
   ...collectJavaScriptFiles('tests')
 ].sort()

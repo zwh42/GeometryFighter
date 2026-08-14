@@ -5,6 +5,7 @@ import {
   Canvas,
   Color,
   Component,
+  director,
   EventKeyboard,
   EventTouch,
   Graphics,
@@ -15,6 +16,7 @@ import {
   Layers,
   Node,
   ResolutionPolicy,
+  screen,
   sys,
   UITransform,
   Vec2,
@@ -28,7 +30,7 @@ import {
   normalized,
   weaponTier
 } from './simulation'
-import type { Bullet, ControlState, Enemy, EnemyKind, Vector, WorldEvent } from './simulation'
+import type { Bullet, ControlState, Enemy, Vector, WorldEvent } from './simulation'
 import {
   DESIGN_HEIGHT,
   DESIGN_WIDTH,
@@ -36,6 +38,7 @@ import {
   MAX_GRID_WARP_RIPPLES,
   MAX_PARTICLES,
   MAX_RIPPLES,
+  RENDER_PIXEL_RATIO,
   STAR_COUNT,
   gridBounds,
   gridPointCount,
@@ -145,6 +148,9 @@ export class GeometryFighter extends Component {
   private lastPlayerPosition: Vector = { x: 0, y: 0 }
 
   protected override onLoad(): void {
+    const devicePixelRatio = Math.max(1, screen.devicePixelRatio)
+    const pipeline = director.root?.pipeline
+    if (pipeline) pipeline.shadingScale = Math.min(1, RENDER_PIXEL_RATIO / devicePixelRatio)
     view.setDesignResolutionSize(DESIGN_WIDTH, DESIGN_HEIGHT, ResolutionPolicy.FIXED_WIDTH)
     this.ensureSceneCamera()
     this.createRenderLayers()
@@ -277,8 +283,9 @@ export class GeometryFighter extends Component {
 
   private resizeWorld(): void {
     const size = view.getVisibleSize()
-    this.world.resize(size.width, size.height)
-    this.touchControls.resize(size.width, size.height, 1 / Math.max(0.01, view.getScaleX()))
+    const unitsPerPixel = Math.max(1, screen.devicePixelRatio) / Math.max(0.01, view.getScaleX())
+    this.touchControls.resize(size.width, size.height, unitsPerPixel)
+    this.world.resize(size.width, size.height, unitsPerPixel)
     this.gridLayout = gridBounds(this.world.width, this.world.height, GRID_SPACING)
     this.syncSticks()
     const transform = this.node.getComponent(UITransform)
@@ -689,7 +696,7 @@ export class GeometryFighter extends Component {
       for (let arm = 0; arm < 4; arm += 1) {
         const angle = enemy.angle + arm * Math.PI * 0.5
         const sideAngle = angle - Math.PI * 0.5
-        graphics.moveTo(enemy.x + Math.cos(angle) * 2, enemy.y + Math.sin(angle) * 2)
+        graphics.moveTo(enemy.x + Math.cos(angle) * 2 * this.touchControls.unitsPerPixel, enemy.y + Math.sin(angle) * 2 * this.touchControls.unitsPerPixel)
         graphics.lineTo(
           enemy.x + Math.cos(angle) * enemy.radius * 0.42 + Math.cos(sideAngle) * enemy.radius * 0.32,
           enemy.y + Math.sin(angle) * enemy.radius * 0.42 + Math.sin(sideAngle) * enemy.radius * 0.32
@@ -739,7 +746,7 @@ export class GeometryFighter extends Component {
       graphics.strokeColor = this.color(colorHex, Math.floor(alpha * (glow ? 70 : 245)))
       for (let index = enemy.segments.length - 1; index >= 0; index -= 1) {
         const segment = enemy.segments[index]
-        const radius = 7 + (enemy.segments.length - index) * 0.35
+        const radius = (7 + (enemy.segments.length - index) * 0.35) * this.touchControls.unitsPerPixel
         this.polygon(graphics, segment.x, segment.y, radius, 4, segment.angle + Math.PI * 0.25, index % 2 === 0)
       }
     } else if (enemy.kind === 'repulsar') {

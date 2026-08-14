@@ -23,9 +23,10 @@
 
 ## 运行
 
-1. 微信开发者工具选择“小游戏”并导入本目录。
-2. 使用默认竖屏模拟器编译运行。
-3. 首次触摸后音频解锁。
+1. 先执行下方“构建微信小游戏发布包”中的 `npm run build:wechat`。
+2. 微信开发者工具选择“小游戏”并导入 `build/wechat-v1-5-2`。
+3. 使用默认竖屏模拟器编译运行。
+4. 首次触摸后音频解锁。
 
 无需安装运行时依赖。首次进行本地验证时先安装开发依赖：
 
@@ -44,16 +45,4 @@ npm run check
 
 ```bash
 npm run build:wechat
-```
-
-## 调试接口
-
-开发者工具控制台可通过 `GameGlobal.geometryGame` 获取当前实例：
-
-```js
-GameGlobal.geometryGame.debugSnapshot()
-GameGlobal.geometryGame.debugStart()
-GameGlobal.geometryGame.debugSpawn('blackhole', 1)
-GameGlobal.geometryGame.debugLoseLife()
-GameGlobal.geometryGame.debugBomb()
 ```

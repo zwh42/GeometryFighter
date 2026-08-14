@@ -4,7 +4,6 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { GeometryWorld, normalizeInto } = require('../assets/scripts/simulation.ts')
 const { COLORS } = require('../assets/scripts/design-tokens.ts')
-const { ENEMY } = require('../js/config.js')
 
 test('normalizeInto reuses caller storage for hot-loop vectors', function () {
   // Given: caller-owned storage used repeatedly by the simulation hot path.
@@ -135,7 +134,8 @@ test('continuous automatic fire remains inside the mobile projectile budget', fu
   assert.equal(world.bullets.length, 180)
 })
 
-test('enemy semantic colors stay aligned across Cocos and standalone runtimes', function () {
+test('enemy semantic colors follow the Cocos design tokens', function () {
+  // Given: the production world and its semantic enemy palette.
   const world = new GeometryWorld()
   const expected = {
     wanderer: COLORS.violet,
@@ -147,8 +147,8 @@ test('enemy semantic colors stay aligned across Cocos and standalone runtimes', 
     blackhole: COLORS.red
   }
 
+  // Then: each enemy role resolves to its documented Cocos color token.
   for (const [kind, color] of Object.entries(expected)) {
     assert.equal(world.enemyColor(kind), color)
-    assert.equal(ENEMY[kind].color, color)
   }
 })
