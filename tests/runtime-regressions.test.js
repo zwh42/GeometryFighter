@@ -25,18 +25,18 @@ test('Cocos shades at one logical device pixel instead of the full retina resolu
   assert.equal(RENDER_PIXEL_RATIO, 1)
 })
 
-test('score HUD stays fully below a Dynamic Island safe area', function () {
-  // Given: a portrait design viewport with a 90-unit top cutout inset.
-  const { scoreHudAnchor } = require('../assets/scripts/presentation.ts')
+test('top HUD clears both safe-area edges and the WeChat menu capsule', function () {
+  // Given: a portrait viewport with a 90-unit cutout and a menu capsule ending 124 units from the top.
+  const { hudLayout } = require('../assets/scripts/presentation.ts')
   const viewport = { width: 720, height: 1280 }
   const safeArea = { x: 0, y: 34, width: 720, height: 1156 }
 
-  // When: the center-anchored 80-unit score label is positioned.
-  const anchor = scoreHudAnchor(viewport, safeArea, 80)
+  // When: the complete two-column HUD layout is positioned.
+  const layout = hudLayout({ viewport, safeArea, labelHeight: 80, obstructionTop: 124 })
 
-  // Then: its top edge clears the safe area by eight units and its left edge remains visible.
-  assert.deepEqual(anchor, { x: -344, y: 502, topInset: 98 })
-  assert.equal(anchor.y + 40, viewport.height * 0.5 - anchor.topInset)
+  // Then: both horizontal anchors are inset and the whole row starts below the capsule with padding.
+  assert.deepEqual(layout, { leftX: -332, rightX: 332, y: 464, statusWidth: 388, topInset: 136 })
+  assert.equal(layout.y + 40, viewport.height * 0.5 - layout.topInset)
 })
 
 test('Cocos entity radii preserve the early-August logical-pixel sizes', function () {
@@ -67,7 +67,7 @@ test('Cocos entity radii preserve the early-August logical-pixel sizes', functio
 
 test('Cocos visual primitives consume the documented design tokens', function () {
   // Given: the shared palette, type scale, and one-thumb control metrics.
-  const { COLORS, TYPOGRAPHY, TOUCH } = require('../assets/scripts/design-tokens.ts')
+  const { COLORS, LAYOUT, TYPOGRAPHY, TOUCH } = require('../assets/scripts/design-tokens.ts')
 
   // Then: Cocos uses the documented semantic values.
   assert.deepEqual(COLORS, {
@@ -81,8 +81,12 @@ test('Cocos visual primitives consume the documented design tokens', function ()
   })
   assert.deepEqual(TOUCH, {
     travel: 48, ringRadius: 48, knobRadius: 17, deadZone: 7, responseSpan: 35,
-    sectorRadius: 66, headingRay: 58, bombRadius: 28, bombHitRadius: 36,
-    bombOffset: 58, defaultBottom: 78, defaultSide: 90
+    sectorRadius: 66, headingRay: 58, defaultBottom: 78, defaultSide: 90
+  })
+  assert.deepEqual(LAYOUT, {
+    arenaInset: 8, scoreEdge: 28, hudMinimumTop: 24, hudSafePadding: 12,
+    hudColumnGap: 16, titleY: 82, subtitleY: -42, promptY: -116, messageY: 142,
+    scoreWidth: 260, scoreHeight: 80, labelWidth: 900, labelHeight: 160
   })
 })
 
@@ -101,6 +105,51 @@ test('warped grid shares one point lattice across both line directions', functio
   assert.ok(points < bounds.columnCount * bounds.rowCount * 2)
 })
 
+test('reactive lattice springs to a sustained dimple, overshoots, and settles back', function () {
+  // Given: the production spring constants and a small lattice.
+  const { ReactiveGridLattice, gridBounds, gridPointIndex } = require('../assets/scripts/presentation.ts')
+  const lattice = new ReactiveGridLattice(90, 7.5)
+  const layout = gridBounds(200, 200, 50)
+  const center = gridPointIndex(layout, 0, 0)
+
+  // When: a constant 10-unit target displacement is held for two seconds, then released.
+  let peak = 0
+  let settledLow = Number.POSITIVE_INFINITY
+  for (let step = 0; step < 120; step += 1) {
+    lattice.advance(layout, 50, 1 / 60, function (x, y, output) { output.x = 10; output.y = 0 })
+    const offset = lattice.points[center].x - 0
+    peak = Math.max(peak, offset)
+  }
+  const heldOffset = lattice.points[center].x
+  for (let step = 0; step < 240; step += 1) {
+    lattice.advance(layout, 50, 1 / 60, function (x, y, output) { output.x = 0; output.y = 0 })
+    settledLow = Math.min(settledLow, lattice.points[center].x)
+  }
+
+  // Then: the lattice converges toward the dimple, visibly overshoots past it, and relaxes home.
+  assert.ok(heldOffset > 9 && heldOffset < 10, `expected near-target hold, got ${heldOffset}`)
+  assert.ok(peak > 10.05, `expected under-damped overshoot past 10, got ${peak}`)
+  assert.ok(Math.abs(lattice.points[center].x) < 0.6, 'expected the lattice to settle back to rest')
+})
+
+test('bullet-wake kicks inject velocity into only the nearest lattice points', function () {
+  // Given: a resting lattice with spacing 50.
+  const { ReactiveGridLattice, gridBounds, gridPointIndex } = require('../assets/scripts/presentation.ts')
+  const lattice = new ReactiveGridLattice(90, 7.5)
+  const layout = gridBounds(400, 400, 50)
+  lattice.advance(layout, 50, 1 / 60, function (x, y, output) { output.x = 0; output.y = 0 })
+
+  // When: one wake impulse lands beside a lattice intersection.
+  lattice.kick(layout, 50, 12, 0, 80, 6)
+
+  // Then: the nearest point is shoved away while a point beyond the radius stays at rest.
+  const struck = lattice.points[gridPointIndex(layout, 0, 0)]
+  const far = lattice.points[gridPointIndex(layout, 3, 0)]
+  lattice.advance(layout, 50, 1 / 60, function (x, y, output) { output.x = 0; output.y = 0 })
+  assert.ok(struck.x < -0.05, `expected the struck point to be shoved away, got ${struck.x}`)
+  assert.ok(Math.abs(far.x - 150) < 1e-9, `expected an untouched point to stay at rest, got ${far.x}`)
+})
+
 test('presentation budgets bound high-load particle and grid distortion work', function () {
   // Given: the production presentation budgets.
   const { GRID_SPACING, MAX_GRID_WARP_RIPPLES, MAX_PARTICLES, STAR_COUNT, gridBounds, gridPointCount } = require('../assets/scripts/presentation.ts')
@@ -110,7 +159,7 @@ test('presentation budgets bound high-load particle and grid distortion work', f
   const budget = { particles: MAX_PARTICLES, gridRipples: MAX_GRID_WARP_RIPPLES, stars: STAR_COUNT, gridPoints: points }
 
   // Then: mobile rendering remains bounded without disabling either effect.
-  assert.deepEqual(budget, { particles: 480, gridRipples: 4, stars: 48, gridPoints: 260 })
+  assert.deepEqual(budget, { particles: 640, gridRipples: 6, stars: 48, gridPoints: 260 })
 })
 
 test('Cocos portrait controls keep firing through center hold and stop on release', function () {
@@ -127,16 +176,16 @@ test('Cocos portrait controls keep firing through center hold and stop on releas
   // When: the single lower-screen touch moves to the right.
   controls.move({ id: 3, x: 184, y: -300 })
   const dragged = controls.vectors()
-  world.update(0.016, { ...dragged, bomb: false, start: false, pause: false })
+  world.update(0.016, { ...dragged, start: false, pause: false })
   controls.move({ id: 3, x: 160, y: -300 })
   const centered = controls.vectors()
   world.fireClock = 0
-  world.update(0.016, { ...centered, bomb: false, start: false, pause: false })
+  world.update(0.016, { ...centered, start: false, pause: false })
   const heldBulletCount = world.bullets.length
   controls.end(3)
   const released = controls.vectors()
   world.fireClock = 0
-  world.update(0.016, { ...released, bomb: false, start: false, pause: false })
+  world.update(0.016, { ...released, start: false, pause: false })
 
   // Then: centering stops movement but preserves the heading until the touch ends.
   assert.equal(controls.singleHanded, true)
@@ -196,15 +245,19 @@ test('Cocos fighter tokens match the review build before 2026-08-07 19:43', func
   })
 })
 
-test('Cocos projectiles, enemies, allies, and super supplies match the same review build', function () {
+test('Cocos projectiles, enemies, allies, and super supplies use the current combat tokens', function () {
   // Given: the reviewed combat primitives separated from simulation behavior.
-  const { ALLY_ART, ENEMY_ART_RADIUS, PROJECTILE_ART, SUPER_WEAPON_ART } = require('../assets/scripts/design-tokens.ts')
+  const { ALLY_ART, COMBAT_ART_SCALE, ENEMY_ART_RADIUS, PROJECTILE_ART, SUPER_WEAPON_ART } = require('../assets/scripts/design-tokens.ts')
 
   // Then: each visible weapon form retains its historical silhouette and palette.
   assert.deepEqual(PROJECTILE_ART, {
     bulletTail: 20, missileTail: 30, glowWidth: 12, coreWidth: 2.8, missileRadius: 7,
-    bulletGlow: '#ffef49', missileGlow: '#ff892a', core: '#fffdd7', missileCore: '#fffce2'
+    overloadTail: 16, overloadGlowWidth: 18, overloadRailWidth: 2.2, overloadCoreRadius: 4.8,
+    overloadRingRadius: 7.2, overloadRailOffset: 3.8, overloadRailLength: 12,
+    bulletGlow: '#ffef49', missileGlow: '#ff892a', overloadGlow: '#42efff',
+    overloadCore: '#ffffff', overloadAccent: '#ff48ed', core: '#fffdd7', missileCore: '#fffce2'
   })
+  assert.equal(COMBAT_ART_SCALE, 1.6)
   assert.deepEqual(ALLY_ART, {
     glow: '#43f6ff', glowAlpha: 62, core: '#b0ffff', glowWidth: 10, coreWidth: 1.8,
     coreRadius: 5.5, nose: 12, wingForward: 3, wingSide: 7, tailForward: -7, tailSide: 4

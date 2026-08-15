@@ -57,8 +57,8 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 
 - Base unit: 4 px.
 - Arena inset: 8 px in Cocos design space.
-- Portrait HUD edge: 20 px; landscape HUD edge: 28 px.
-- Portrait HUD top: `max(18 px, safe-area top + 8 px)`; temporary combat messages begin 68 px below that anchor. Cocos applies the same rule in design-resolution units through `sys.getSafeAreaRect()`.
+- HUD edges: `max(28 design units, safe-area side + 12 design units)` so outlines and figures never touch a clipped screen edge.
+- Portrait HUD top: `max(24 design units, safe-area top + 12 design units, WeChat menu-button bottom + 12 design units)`; both telemetry columns share this anchor so the right column sits completely below the mini-game capsule. Cocos obtains the capsule from `wx.getMenuButtonBoundingClientRect()` and converts it into design-resolution units.
 - The single movement control occupies the lower playfield; the lower-middle region remains clear so supply telemetry cannot be mistaken for a button.
 - The renderer scales to the full viewport and uses centered world coordinates.
 - Responsive targets: 390 × 844 portrait, 720 × 1280 design portrait, and 800 × 450 landscape developer mode.
@@ -68,24 +68,34 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 ### Reactive Grid
 
 - **Structure**: sparse star field, one low-contrast procedural grid pattern, and a luminous boundary. The background never adds an emphasized center axis.
+- **Physics**: every lattice intersection is an under-damped spring (stiffness 90, damping 7.5, ζ≈0.4). Disturbances displace target offsets and the lattice overshoots and wobbles back like fabric, so the arena stays alive between shocks.
+- **Influences**: explosion ripples and black-hole wells displace the target; the player hull presses a speed-scaled dimple (radius 180) into the mesh; every projectile injects `0.12×` its speed as a velocity kick inside radius 80, so bullet streams plough visible wakes; respawn slams a cyan shockwave through the field.
 - **Patterns**: progression cycles through `LATTICE`, `DIAMOND`, `ORBIT`, and `DEPTH`. Each remains a recognizable grid-world surface rather than an illustrated backdrop: orthogonal mesh, diagonal mesh, off-center elliptical field lines, and nested perspective frames.
 - **States**: rest, progression swap, pulse, shockwave, and black-hole distortion. The active pattern index advances on every Assault wave and every weapon-tier upgrade.
 - **Motion**: simulation-driven deformation remains continuous. A new progression pattern fades in over 800 ms so the swap reads as state feedback without flashing behind combat.
 - **Accessibility**: the boundary remains white and readable without relying on glow. Resting pattern opacity stays below enemy fills, telegraphs, projectiles, and HUD strokes so background detail cannot mask a threat.
 
+### Geom (Multiplier Crystal)
+
+- **Structure**: a small rotating lime diamond (`GEOM_ART`) dropped by destroyed enemies — one per light kill, up to four from a black hole. It scatters, drifts, and expires after 8 seconds; the final two seconds blink toward expiry.
+- **Economy**: each collected geom raises the score multiplier one step per six crystals, up to ×25. Losing a life resets the multiplier and the collected count while leaving uncollected crystals on the field.
+- **Collection**: crystals inside a 160-unit radius magnetize to the player with distance-scaled pull and collect on contact — zero extra input, one thumb stays sufficient.
+- **Constraint**: chain-detonation kills drop no crystals, so the clear-screen super remains an escape rather than a multiplier jackpot.
+- **Accessibility**: crystal size (≈5 px) and orbit keep it distinct from every enemy silhouette and from the large ringed super supply; color never carries the difference alone.
+
 ### Fighter
 
 - **Variants**: player (white/cyan), ally (smaller cyan).
 - **Player structure**: the reviewed open nine-point hull runs from twin nose prongs through swept shoulders and a center-tail notch. A three-point inner chevron repeats the nose direction, while a separate green three-point exhaust mark sits behind the hull. Paths remain open and unfilled.
-- **Reviewed scale**: the player hull is approximately 31 × 24 design-space units with a 2.6-unit primary outline, 1.4-unit inner line, and the reviewed 13/8-unit low-alpha glow passes. These drawing dimensions stay independent from the current view-scaled collision geometry.
+- **Display scale**: the reviewed hull geometry and enemy family are rendered at `1.6×` their legacy drawing size for phone readability. The player remains visually distinct through its open hull and cyan-white palette; drawing scale stays independent from the current view-scaled collision geometry.
 - **States**: active, invulnerable flicker, destroyed, ally expiring.
 - **Motion**: the green exhaust mark and player velocity trail carry thrust feedback; allies orbit smoothly and aim independently.
 - **Accessibility**: the player's twin nose prongs and tail notch point in the firing direction and remain distinct from every closed enemy polygon; allies retain their smaller circular-chevron silhouette so they cannot be mistaken for the player.
 
 ### Projectile
 
-- **Variants**: standard yellow bolt, orange-white homing missile, cyan ally bolt.
-- **Reviewed model**: standard and missile tails remain 20/30 px with 12 px glow and 2.8 px core; missiles retain the filled seven-pixel triangular head. Their exact reviewed colors are `#ffef49`, `#ff892a`, `#fffdd7`, and `#fffce2`.
+- **Variants**: standard yellow bolt, orange-white homing missile, cyan ally bolt, and cyan/magenta overdrive energy pulse.
+- **Reviewed model**: standard and missile tails remain 20/30 px with 12 px glow and 2.8 px core; missiles retain the filled seven-pixel triangular head. Overdrive replaces the standard bolt with a round white plasma core, cyan containment ring, and parallel magenta stabilizer rails, avoiding an arrow silhouette while making the nine-lane barrage visibly more advanced.
 - **States**: flight, curved pursuit, impact, boundary impact.
 - **Motion**: missiles use bounded angular steering so course changes are visible and interruptible rather than snapping to a target.
 - **Accessibility**: color, width, tail length, and missile silhouette all distinguish variants.
@@ -103,7 +113,8 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 - **Variants**: violet pinwheel wanderer, cyan diamond grunt, green framed-cube weaver, magenta crossed-box spinner, gold segmented snake with cyan head, orange/cyan repulsar, and red/orange/violet black hole.
 - **Structure**: every live class owns a distinct vector silhouette from the reviewed combat grammar: pinwheel arms, crossed diamonds, framed cube, segmented chain, directional repulsor shell, or concentric gravity rings.
 - **States**: spawn, normal pursuit, class-specific maneuver, damage, and destruction.
-- **Motion**: wanderers drift, grunts pursue directly, weavers weave, spinners orbit while rotating, snakes follow a segmented leader, repulsars maintain distance, and black holes distort nearby movement.
+- **Motion**: wanderers drift, grunts pursue directly (speed scaling up to 2.05× base as the run matures), weavers weave and sidestep closing fire within 120 units (260 impulse, 0.7 s cooldown), spinners orbit while rotating, snakes follow a segmented leader, repulsars maintain distance, and black holes devour. A black hole pulls enemies from 300 units with inverse-linear force, swallows them for no score, grows, and erupts at critical mass into a six-grunt ring with shockwave, flash, and shake.
+- **Fairness**: every edge spawn re-rolls until it lands at least 250 units from the player or exhausts five attempts.
 - **Accessibility**: class identity never depends on hue alone; silhouette, rotation, scale, durability, and motion pattern reinforce one another.
 
 ### Assault Director
@@ -128,7 +139,7 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 ## 6. Motion & Interaction
 
 | Mechanism | Timing | Purpose |
-|---|---:|---|
+|---|---|---|
 | Opening guidance | 3.5 s hold + 1 s fade | Teaches the gesture without permanently covering combat |
 | Assault wave | 15.5 s active + 2.5 s recovery | Alternates pressure profiles while preserving a readable breath between reinforcements |
 | Progression background swap | 800 ms opacity fade | Marks every new Assault wave or weapon tier without adding motion unrelated to game state |
@@ -137,6 +148,15 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 | Portrait directional fire | continuous while touch is held after movement magnitude > 0.18 once | Remembers the last deliberate heading so center hold becomes a stable fire stance |
 | Directional assist sector | ±26°, 0.62 × long viewport axis | Selects one eligible target at volley time; selection favors the center ray and does not alter an in-flight bullet |
 | Projectile tracking | continuous, 5.4 rad/s response | Shows missile acquisition and course correction |
+| Grid spring response | stiffness 90, damping 7.5 | Lattice overshoots and wobbles back after every shock, wake, and hull press |
+| Bullet grid wake | 0.12 × bullet speed, radius 80 | Every projectile ploughs a visible furrow through the mesh |
+| Geom magnet | 240–2340 px s⁻² inside 160 units | Pulls dropped crystals to the player without a second gesture |
+| Geom lifetime | 8 s, final 2 s blinking | Rewards prompt sweeps without littering the field |
+| Multiplier growth | +1 per 6 geoms, ceiling ×25, reset on death | Restores the risk-reward loop of sweeping through danger |
+| Death slow motion | 0.9 s, time scale 0.32→1 | Reads the collapse beat without breaking the run's flow |
+| Screen shake | ≤30 units, exp decay 5.5 s⁻¹ | Impact feedback on kills (≤7), supers (13), and death (18) while the HUD stays stable |
+| Death flash | α 80, decays 2.4 s⁻¹ | One white blink frames the loss; black-hole eruption flashes at 0.7 strength |
+| Respawn shockwave | cyan ripple + 24-particle burst | Re-entry into the grid reads as a slam, not a fade |
 | Supply spawn | 600 ms | Announces a target entering the arena |
 | Chain detonation | 65 ms stagger | Makes the full-screen effect legible as a cascade |
 | Missile mode | 5 s | Temporary weapon transformation |
@@ -161,6 +181,7 @@ Strategy: mixed luminous depth. The arena is flat and near-black; entities gain 
 - Score, lives, weapon state, and timed messages remain inside the platform safe area on notched screens.
 - Per-frame cleanup preserves entity-array identities; particles are recycled after expiry so long sessions do not create avoidable garbage-collection spikes.
 - Visual density remains capped, but optimization must preserve projectile count, enemy silhouettes, grid deformation, and primary destruction bursts before considering any effect reduction.
+- A three-tier adaptive quality governor protects frame rate first: a rolling frame-cost average above 21.5 ms steps down (particle budget 640 → 448 → 256, glow passes shed from grid/particles/ripples, then bullets/enemies), and a sustained average below 15.2 ms steps back up. Enemy core strokes and the player silhouette never shed their glow before everything else has already been reduced.
 
 ### Accepted Debt
 

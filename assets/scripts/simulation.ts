@@ -1,4 +1,4 @@
-import { COLORS, ENEMY_ART_COLOR, SUPER_EVENT_ART, SUPER_WEAPON_ART } from './design-tokens.ts'
+import { COLORS, ENEMY_ART_COLOR, GEOM_ART, SUPER_EVENT_ART, SUPER_WEAPON_ART } from './design-tokens.ts'
 import { SpatialIndex } from './spatial-index.ts'
 
 export type EnemyKind = 'wanderer' | 'grunt' | 'weaver' | 'spinner' | 'snake' | 'repulsar' | 'blackhole'
@@ -26,7 +26,7 @@ export interface Bullet extends Vector {
   angle: number
   life: number
   radius: number
-  kind: 'bullet' | 'missile'
+  kind: 'bullet' | 'missile' | 'overload'
   source: 'player' | 'ally'
   target: Enemy | null
 }
@@ -52,6 +52,7 @@ export interface Enemy extends Vector {
   segments: SnakeSegment[]
   missileChargeUsed: boolean
   selfDestruct: number
+  dodgeTimer: number
 }
 
 export interface Supply extends Vector {
@@ -73,7 +74,15 @@ export interface Ally extends Vector {
   target: Enemy | null
 }
 
-export type WorldEventKind = 'shoot' | 'kill' | 'bomb' | 'death' | 'reward' | 'wave' | 'blackhole' | 'supply' | 'super'
+export interface Geom extends Vector {
+  vx: number
+  vy: number
+  life: number
+  phase: number
+  dead: boolean
+}
+
+export type WorldEventKind = 'shoot' | 'kill' | 'death' | 'reward' | 'wave' | 'blackhole' | 'supply' | 'super' | 'geom'
 
 export interface WorldEvent {
   kind: WorldEventKind
@@ -82,13 +91,13 @@ export interface WorldEvent {
   color: string
   amount: number
   text: string
+  weight: number
 }
 
 export interface ControlState {
   move: Vector
   aim: Vector
   engaged: boolean
-  bomb: boolean
   start: boolean
   pause: boolean
 }
@@ -103,6 +112,26 @@ const ENEMY_VALUE: Record<EnemyKind, number> = {
   blackhole: 1000
 }
 
+const KILL_PARTICLE_WEIGHT: Record<EnemyKind, number> = {
+  wanderer: 22,
+  grunt: 28,
+  weaver: 32,
+  spinner: 36,
+  snake: 46,
+  repulsar: 50,
+  blackhole: 84
+}
+
+const GEOM_DROPS: Record<EnemyKind, number> = {
+  wanderer: 1,
+  grunt: 1,
+  weaver: 1,
+  spinner: 1,
+  snake: 2,
+  repulsar: 2,
+  blackhole: 4
+}
+
 const PLAYER_LOGICAL_RADIUS = 10
 const ENEMY_LOGICAL_RADIUS: Record<EnemyKind, number> = {
   wanderer: 11,
@@ -114,7 +143,6 @@ const ENEMY_LOGICAL_RADIUS: Record<EnemyKind, number> = {
   blackhole: 18
 }
 
-const BOMB_KILL_EVENT_LIMIT = 6
 const MAX_LIVE_ENEMIES = 100
 export const MAX_BULLETS = 180
 const MISSILE_DURATION = 5
@@ -132,6 +160,18 @@ export const AIM_HEADING_RESPONSE = 14
 export const AIM_ASSIST_HALF_ANGLE = Math.PI * 26 / 180
 const AIM_ASSIST_CONE_TANGENT = Math.tan(AIM_ASSIST_HALF_ANGLE)
 const BULLET_HIT_FORGIVENESS = 4
+export const MAX_GEOMS = 90
+const GEOM_LIFE = 8
+const GEOM_MAGNET_RANGE = 160
+const GEOM_COLLECT_RADIUS = 26
+const GEOMS_PER_MULTIPLIER = 6
+export const MAX_MULTIPLIER = 25
+export const SPAWN_MIN_DISTANCE = 250
+export const BLACKHOLE_ERUPT_MASS = 2.3
+export const BLACKHOLE_ERUPT_GRUNTS = 6
+const WEAVER_DODGE_RANGE = 120
+const WEAVER_DODGE_COOLDOWN = 0.7
+const WEAVER_DODGE_IMPULSE = 260
 
 export function clamp(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(high, value))
@@ -172,7 +212,6 @@ export class GeometryWorld {
   score = 0
   highScore = 0
   lives = 3
-  bombs = 3
   multiplier = 1
   kills = 0
   wave = 1
@@ -192,6 +231,8 @@ export class GeometryWorld {
   enemies: Enemy[] = []
   supplies: Supply[] = []
   allies: Ally[] = []
+  geoms: Geom[] = []
+  geomTotal = 0
   events: WorldEvent[] = []
   private readonly enemyIndex = new SpatialIndex<Enemy>()
   private readonly activeEnemies: Enemy[] = []
@@ -240,7 +281,6 @@ export class GeometryWorld {
     this.elapsed = 0
     this.score = 0
     this.lives = 3
-    this.bombs = 3
     this.multiplier = 1
     this.kills = 0
     this.wave = 1
@@ -258,6 +298,8 @@ export class GeometryWorld {
     this.enemies.length = 0
     this.supplies.length = 0
     this.allies.length = 0
+    this.geoms.length = 0
+    this.geomTotal = 0
     this.events.length = 0
     this.enemyIndexDirty = true
     this.pushEvent('wave', 0, 0, COLORS.gridHot, 1, 'GRID LEVEL 1')
@@ -279,6 +321,7 @@ export class GeometryWorld {
     this.updateEnemies(step)
     this.updateBullets(step)
     this.updateAllies(step)
+    this.updateGeoms(step)
     this.resolveCollisions()
     this.spawnClock -= step
     if (this.spawnClock <= 0) this.spawnWave()
@@ -287,7 +330,6 @@ export class GeometryWorld {
       this.spawnSupply()
       this.supplyClock = 18 + this.random() * 10
     }
-    if (controls.bomb) this.useBomb()
     this.cleanup()
   }
 
@@ -361,7 +403,8 @@ export class GeometryWorld {
 
   fire(angle: number): void {
     const tier = weaponTier(this.score)
-    const patterns = this.overloadTimer > 0
+    const overload = this.overloadTimer > 0
+    const patterns = overload
       ? [-0.28, -0.21, -0.14, -0.07, 0, 0.07, 0.14, 0.21, 0.28]
       : tier === 1 ? [0] : tier === 2 ? [-0.055, 0.055] : tier === 3 ? [-0.105, 0, 0.105] : [-0.17, -0.08, 0, 0.08, 0.17]
     const aimX = Math.cos(angle)
@@ -402,12 +445,12 @@ export class GeometryWorld {
         angle: shotAngle,
         life: missile ? 2.2 : 1.2,
         radius: (missile ? 4.2 : tier >= 4 ? 4 : 3) * this.unitsPerPixel,
-        kind: missile ? 'missile' : 'bullet',
+        kind: missile ? 'missile' : overload ? 'overload' : 'bullet',
         source: 'player',
         target: missileTarget
       })
     }
-    this.fireClock = this.overloadTimer > 0 ? 0.042 : tier >= 3 ? 0.075 : 0.09
+    this.fireClock = overload ? 0.042 : tier >= 3 ? 0.075 : 0.09
     this.pushEvent('shoot', this.player.x, this.player.y, COLORS.yellow, tier, '')
   }
 
@@ -478,7 +521,7 @@ export class GeometryWorld {
       if (enemy.selfDestruct > 0) {
         enemy.selfDestruct -= dt
         if (enemy.selfDestruct <= 0) {
-          this.killEnemy(enemy)
+          this.killEnemy(enemy, true, false)
           continue
         }
       }
@@ -499,6 +542,8 @@ export class GeometryWorld {
         const weave = Math.sin(enemy.age * 5.2 + enemy.phase) * 0.95
         targetX = direction.x - direction.y * weave
         targetY = direction.y + direction.x * weave
+        if (enemy.dodgeTimer > 0) enemy.dodgeTimer -= dt
+        else if (this.dodgeIncomingFire(enemy)) enemy.dodgeTimer = WEAVER_DODGE_COOLDOWN
       } else if (enemy.kind === 'spinner') {
         const orbit = Math.sin(enemy.age * 2.8 + enemy.phase)
         targetX = direction.x - direction.y * orbit * 0.7
@@ -514,7 +559,7 @@ export class GeometryWorld {
         enemy.angle += dt * 1.5
         targetX *= 0.18
         targetY *= 0.18
-        this.applyBlackhole(enemy, dt)
+        if (this.applyBlackhole(enemy, dt)) continue
       }
 
       const steer = normalizeInto(targetX, targetY, this.normalizationScratch)
@@ -528,7 +573,25 @@ export class GeometryWorld {
     }
   }
 
-  applyBlackhole(enemy: Enemy, dt: number): void {
+  dodgeIncomingFire(enemy: Enemy): boolean {
+    for (const bullet of this.bullets) {
+      if (bullet.life <= 0 || bullet.source !== 'player') continue
+      const dx = enemy.x - bullet.x
+      const dy = enemy.y - bullet.y
+      const distance = Math.max(1, length(dx, dy))
+      if (distance > WEAVER_DODGE_RANGE) continue
+      if ((bullet.vx * dx + bullet.vy * dy) / distance < 140) continue
+      const bulletSpeed = Math.max(1, length(bullet.vx, bullet.vy))
+      const cross = bullet.vx * dy - bullet.vy * dx
+      const side = cross >= 0 ? 1 : -1
+      enemy.vx += -bullet.vy / bulletSpeed * side * WEAVER_DODGE_IMPULSE
+      enemy.vy += bullet.vx / bulletSpeed * side * WEAVER_DODGE_IMPULSE
+      return true
+    }
+    return false
+  }
+
+  applyBlackhole(enemy: Enemy, dt: number): boolean {
     const player = this.player
     if (player.alive) {
       const dx = enemy.x - player.x
@@ -552,11 +615,50 @@ export class GeometryWorld {
       }
       if (distance < enemy.radius * 0.72) {
         bullet.life = 0
-        enemy.mass = Math.min(2.3, enemy.mass + 0.025)
+        enemy.mass += 0.025
         enemy.radius = ENEMY_LOGICAL_RADIUS.blackhole * this.unitsPerPixel * enemy.mass
         this.pushEvent('blackhole', enemy.x, enemy.y, COLORS.magenta, 1, '')
+        if (enemy.mass >= BLACKHOLE_ERUPT_MASS) {
+          this.eruptBlackhole(enemy)
+          return true
+        }
       }
     }
+    for (const other of this.enemies) {
+      if (other === enemy || other.dead || other.spawnTimer > 0 || other.kind === 'blackhole') continue
+      const dx = enemy.x - other.x
+      const dy = enemy.y - other.y
+      const distance = Math.max(12, length(dx, dy))
+      if (distance >= 300) continue
+      const force = enemy.mass * 26000 / (distance + 30)
+      other.vx += dx / distance * force * dt
+      other.vy += dy / distance * force * dt
+      if (distance < enemy.radius * 0.9) {
+        other.dead = true
+        this.enemyIndexDirty = true
+        enemy.mass += 0.012
+        enemy.radius = ENEMY_LOGICAL_RADIUS.blackhole * this.unitsPerPixel * enemy.mass
+        if (enemy.mass >= BLACKHOLE_ERUPT_MASS) {
+          this.eruptBlackhole(enemy)
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  eruptBlackhole(enemy: Enemy): void {
+    const x = enemy.x
+    const y = enemy.y
+    this.killEnemy(enemy, true, true)
+    for (let index = 0; index < BLACKHOLE_ERUPT_GRUNTS; index += 1) {
+      const angle = index / BLACKHOLE_ERUPT_GRUNTS * Math.PI * 2 + this.random() * 0.4
+      const grunt = this.spawnEnemy('grunt', x + Math.cos(angle) * 52 * this.unitsPerPixel, y + Math.sin(angle) * 52 * this.unitsPerPixel)
+      grunt.spawnTimer = 0.35
+      grunt.vx = Math.cos(angle) * 220
+      grunt.vy = Math.sin(angle) * 220
+    }
+    this.pushEvent('super', x, y, COLORS.orange, 2, 'BLACK HOLE ERUPTED')
   }
 
   updateSnake(enemy: Enemy, dt: number): void {
@@ -691,6 +793,59 @@ export class GeometryWorld {
     })
   }
 
+  spawnGeoms(x: number, y: number, count: number): void {
+    for (let index = 0; index < count; index += 1) {
+      if (this.geoms.length >= MAX_GEOMS) {
+        const oldest = this.geoms.find((geom) => !geom.dead)
+        if (!oldest) break
+        oldest.dead = true
+      }
+      const angle = this.random() * Math.PI * 2
+      const speed = 55 + this.random() * 95
+      this.geoms.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: GEOM_LIFE,
+        phase: this.random() * Math.PI * 2,
+        dead: false
+      })
+    }
+  }
+
+  updateGeoms(dt: number): void {
+    const player = this.player
+    for (const geom of this.geoms) {
+      if (geom.dead) continue
+      geom.life -= dt
+      if (geom.life <= 0) {
+        geom.dead = true
+        continue
+      }
+      geom.phase += dt * 7
+      const dx = player.x - geom.x
+      const dy = player.y - geom.y
+      const distance = Math.max(1, length(dx, dy))
+      if (player.alive && distance < GEOM_MAGNET_RANGE) {
+        const pull = 240 + (1 - distance / GEOM_MAGNET_RANGE) * 2100
+        geom.vx += dx / distance * pull * dt
+        geom.vy += dy / distance * pull * dt
+      }
+      const drag = Math.exp(-2.4 * dt)
+      geom.vx *= drag
+      geom.vy *= drag
+      geom.x += geom.vx * dt
+      geom.y += geom.vy * dt
+      if (player.alive && distance < GEOM_COLLECT_RADIUS + player.radius * 0.4) {
+        geom.dead = true
+        this.geomTotal += 1
+        this.multiplier = Math.min(MAX_MULTIPLIER, 1 + Math.floor(this.geomTotal / GEOMS_PER_MULTIPLIER))
+        this.pushEvent('geom', geom.x, geom.y, GEOM_ART.core, this.multiplier, '')
+      }
+    }
+  }
+
   resolveCollisions(): void {
     this.prepareEnemyIndex()
     for (const bullet of this.bullets) {
@@ -740,15 +895,17 @@ export class GeometryWorld {
     }
   }
 
-  killEnemy(enemy: Enemy, emitPresentation = true): void {
+  killEnemy(enemy: Enemy, emitPresentation = true, dropGeoms = true): void {
     enemy.dead = true
     this.enemyIndexDirty = true
     const gained = enemy.value * this.multiplier
     this.score += gained
     this.highScore = Math.max(this.highScore, this.score)
     this.kills += 1
-    this.multiplier = Math.min(10, 1 + Math.floor(this.kills / 10))
-    if (emitPresentation) this.pushEvent('kill', enemy.x, enemy.y, this.enemyColor(enemy.kind), gained, `+${gained}`)
+    if (emitPresentation) {
+      this.pushEvent('kill', enemy.x, enemy.y, this.enemyColor(enemy.kind), gained, `+${gained}`, KILL_PARTICLE_WEIGHT[enemy.kind])
+    }
+    if (dropGeoms) this.spawnGeoms(enemy.x, enemy.y, GEOM_DROPS[enemy.kind])
     while (this.score >= this.nextLife) {
       this.lives += 1
       this.nextLife += 75000
@@ -765,32 +922,11 @@ export class GeometryWorld {
     if (!this.player.alive || this.player.invulnerable > 0) return
     this.lives -= 1
     this.multiplier = 1
+    this.geomTotal = 0
     this.kills = 0
     this.player.alive = false
     this.player.respawnTimer = 1.15
     this.pushEvent('death', this.player.x, this.player.y, COLORS.white, 1, this.lives > 0 ? 'GRID BREACH' : 'GRID COLLAPSED')
-  }
-
-  useBomb(): void {
-    if (this.bombs <= 0 || !this.player.alive) return
-    this.bombs -= 1
-    let presentationEvents = 0
-    for (const enemy of this.enemies) {
-      if (enemy.dead) continue
-      if (enemy.kind === 'blackhole') {
-        enemy.health -= 5
-        enemy.mass *= 0.7
-        enemy.radius = Math.max(ENEMY_LOGICAL_RADIUS.blackhole * this.unitsPerPixel * 0.85, enemy.radius * 0.7)
-        if (enemy.health <= 0) {
-          this.killEnemy(enemy, presentationEvents < BOMB_KILL_EVENT_LIMIT)
-          presentationEvents += 1
-        }
-      } else {
-        this.killEnemy(enemy, presentationEvents < BOMB_KILL_EVENT_LIMIT)
-        presentationEvents += 1
-      }
-    }
-    this.pushEvent('bomb', this.player.x, this.player.y, COLORS.cyan, 1, 'SMART BOMB')
   }
 
   spawnWave(): void {
@@ -817,28 +953,33 @@ export class GeometryWorld {
   }
 
   spawnEnemy(kind: EnemyKind, x?: number, y?: number): Enemy {
-    const side = Math.floor(this.random() * 4)
     const halfWidth = this.width * 0.5
     const halfHeight = this.height * 0.5
     const padding = 34
     let spawnX = x ?? 0
     let spawnY = y ?? 0
     if (x === undefined || y === undefined) {
-      if (side === 0) {
-        spawnX = -halfWidth - padding
-        spawnY = (this.random() - 0.5) * this.height
-      } else if (side === 1) {
-        spawnX = halfWidth + padding
-        spawnY = (this.random() - 0.5) * this.height
-      } else if (side === 2) {
-        spawnX = (this.random() - 0.5) * this.width
-        spawnY = halfHeight + padding
-      } else {
-        spawnX = (this.random() - 0.5) * this.width
-        spawnY = -halfHeight - padding
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const side = Math.floor(this.random() * 4)
+        if (side === 0) {
+          spawnX = -halfWidth - padding
+          spawnY = (this.random() - 0.5) * this.height
+        } else if (side === 1) {
+          spawnX = halfWidth + padding
+          spawnY = (this.random() - 0.5) * this.height
+        } else if (side === 2) {
+          spawnX = (this.random() - 0.5) * this.width
+          spawnY = halfHeight + padding
+        } else {
+          spawnX = (this.random() - 0.5) * this.width
+          spawnY = -halfHeight - padding
+        }
+        const dx = spawnX - this.player.x
+        const dy = spawnY - this.player.y
+        if (dx * dx + dy * dy >= SPAWN_MIN_DISTANCE * SPAWN_MIN_DISTANCE) break
       }
     }
-    const speedScale = Math.min(1.75, 1 + this.elapsed / 210)
+    const speedScale = Math.min(2.05, 1 + this.elapsed / 200)
     const baseSpeed = kind === 'wanderer' ? 84 : kind === 'grunt' ? 116 : kind === 'snake' ? 105 : kind === 'blackhole' ? 22 : 96
     const health = kind === 'blackhole' ? 14 : kind === 'repulsar' ? 3 : kind === 'snake' ? 2 : 1
     const segments: SnakeSegment[] = []
@@ -863,7 +1004,8 @@ export class GeometryWorld {
       mass: 1,
       segments,
       missileChargeUsed: false,
-      selfDestruct: 0
+      selfDestruct: 0,
+      dodgeTimer: 0
     }
     this.enemies.push(enemy)
     this.enemyIndexDirty = true
@@ -907,10 +1049,18 @@ export class GeometryWorld {
       allyCount += 1
     }
     this.allies.length = allyCount
+
+    let geomCount = 0
+    for (const geom of this.geoms) {
+      if (geom.dead) continue
+      this.geoms[geomCount] = geom
+      geomCount += 1
+    }
+    this.geoms.length = geomCount
   }
 
-  pushEvent(kind: WorldEventKind, x: number, y: number, color: string, amount: number, text: string): void {
-    this.events.push({ kind, x, y, color, amount, text })
+  pushEvent(kind: WorldEventKind, x: number, y: number, color: string, amount: number, text: string, weight = 0): void {
+    this.events.push({ kind, x, y, color, amount, text, weight })
   }
 
   consumeEvents(): WorldEvent[] {

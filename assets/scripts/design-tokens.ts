@@ -33,18 +33,16 @@ export const TOUCH = {
   responseSpan: 35,
   sectorRadius: 66,
   headingRay: 58,
-  bombRadius: 28,
-  bombHitRadius: 36,
-  bombOffset: 58,
   defaultBottom: 78,
   defaultSide: 90
 } as const
 
 export const LAYOUT = {
   arenaInset: 8,
-  scoreEdge: 16,
-  hudMinimumTop: 18,
-  hudSafePadding: 8,
+  scoreEdge: 28,
+  hudMinimumTop: 24,
+  hudSafePadding: 12,
+  hudColumnGap: 16,
   titleY: 82,
   subtitleY: -42,
   promptY: -116,
@@ -54,6 +52,8 @@ export const LAYOUT = {
   labelWidth: 900,
   labelHeight: 160
 } as const
+
+export const COMBAT_ART_SCALE = 1.6
 
 export const STROKES = {
   gridGlow: 7,
@@ -99,8 +99,18 @@ export const PROJECTILE_ART = {
   glowWidth: 12,
   coreWidth: 2.8,
   missileRadius: 7,
+  overloadTail: 16,
+  overloadGlowWidth: 18,
+  overloadRailWidth: 2.2,
+  overloadCoreRadius: 4.8,
+  overloadRingRadius: 7.2,
+  overloadRailOffset: 3.8,
+  overloadRailLength: 12,
   bulletGlow: '#ffef49',
   missileGlow: '#ff892a',
+  overloadGlow: COLORS.cyan,
+  overloadCore: COLORS.white,
+  overloadAccent: COLORS.magenta,
   core: '#fffdd7',
   missileCore: '#fffce2'
 } as const
@@ -166,4 +176,13 @@ export const SUPER_EVENT_ART = {
   detonation: '#ff6d77',
   overload: '#fff36a',
   allies: '#43f6ff'
+} as const
+
+export const GEOM_ART = {
+  core: '#d8ff7a',
+  glow: '#a6ff4d',
+  radius: 5.4,
+  glowWidth: 9,
+  coreWidth: 1.6,
+  glowAlpha: 55
 } as const

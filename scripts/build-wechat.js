@@ -6,7 +6,7 @@ const { join, resolve } = require('node:path')
 
 const project = resolve(__dirname, '..')
 const musicFiles = ['game.js', 'bgm.mp3', 'grid-pressure.mp3', 'grid-runner-pulse.mp3', 'gravity-coin.mp3', 'gravity-coin-alt.mp3']
-const outputName = process.argv[2] || 'wechat-v1-6-5'
+const outputName = process.argv[2] || 'wechat-v1-6-6'
 if (!/^[a-zA-Z0-9._-]+$/.test(outputName)) throw new Error(`Invalid output name: ${outputName}`)
 
 const creator = process.env.COCOS_CREATOR_PATH || '/Applications/Cocos/Creator/3.8.8/CocosCreator.app/Contents/MacOS/CocosCreator'

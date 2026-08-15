@@ -17,24 +17,18 @@ test('normalizeInto reuses caller storage for hot-loop vectors', function () {
   assert.deepEqual(output, { x: 0.6, y: 0.8 })
 })
 
-test('smart bomb bounds presentation events when destroying a crowded wave', function () {
-  // Given: a full 90-enemy wave and one available smart bomb.
+test('smart bomb has no remaining simulation inventory or action surface', function () {
+  // Given: a freshly reset world after the secondary action was removed.
   const world = new GeometryWorld()
   world.reset()
-  world.events.length = 0
-  world.bombs = 1
-  for (let index = 0; index < 90; index += 1) {
-    const enemy = world.spawnEnemy('grunt', index * 3 - 135, 220)
-    enemy.spawnTimer = 0
-  }
 
-  // When: the smart bomb destroys the wave in one update.
-  world.useBomb()
+  // When: the public gameplay surface is inspected.
+  const hasInventory = 'bombs' in world
+  const hasAction = 'useBomb' in world
 
-  // Then: gameplay still kills every target, but presentation work stays bounded.
-  assert.equal(world.enemies.filter(function (enemy) { return enemy.dead }).length, 90)
-  assert.equal(world.events.filter(function (event) { return event.kind === 'kill' }).length, 6)
-  assert.equal(world.events.filter(function (event) { return event.kind === 'bomb' }).length, 1)
+  // Then: neither a finite bomb inventory nor an activation action remains.
+  assert.equal(hasInventory, false)
+  assert.equal(hasAction, false)
 })
 
 test('timed super supplies require eight hits and activate their stored effect', function () {
@@ -60,27 +54,26 @@ test('timed super supplies require eight hits and activate their stored effect',
   assert.equal(world.overloadTimer, 8)
 })
 
-test('score milestone restores a super supply instead of replenishing a smart bomb', function () {
+test('score milestone restores a super supply', function () {
   // Given: a kill worth the remaining points before the 100,000-point milestone.
   const world = new GeometryWorld()
   world.reset()
   world.score = 99900
   world.events.length = 0
-  const bombs = world.bombs
   const enemy = world.spawnEnemy('grunt', 120, 0)
   enemy.spawnTimer = 0
 
   // When: the target is destroyed.
   world.killEnemy(enemy)
 
-  // Then: the historical supply trigger returns while the current finite bomb inventory remains intact.
+  // Then: the historical supply trigger returns without introducing a secondary inventory.
   assert.equal(world.supplies.length, 1)
   assert.equal(world.supplies[0].maxHealth, 8)
-  assert.equal(world.bombs, bombs)
+  assert.equal('bombs' in world, false)
 })
 
-test('all historical super forms coexist with smart bombs', function () {
-  // Given: live enemies and the current three-bomb inventory.
+test('all historical super forms coexist without a secondary action inventory', function () {
+  // Given: live enemies and the passive super-supply system.
   const world = new GeometryWorld()
   world.reset()
   const first = world.spawnEnemy('grunt', 100, 0)
@@ -93,13 +86,28 @@ test('all historical super forms coexist with smart bombs', function () {
   world.activateSuperWeapon('allies')
   world.activateSuperWeapon('overload')
 
-  // Then: enemies enter the staggered chain, 3-5 allies deploy for 12 seconds, overdrive lasts 8 seconds, and bombs remain available.
+  // Then: enemies enter the staggered chain, 3-5 allies deploy for 12 seconds, and overdrive lasts 8 seconds.
   assert.ok(first.selfDestruct > 0)
   assert.ok(second.selfDestruct > first.selfDestruct)
   assert.ok(world.allies.length >= 3 && world.allies.length <= 5)
   assert.ok(world.allies.every(function (ally) { return ally.life === 12 }))
   assert.equal(world.overloadTimer, 8)
-  assert.equal(world.bombs, 3)
+  assert.equal('bombs' in world, false)
+})
+
+test('overdrive fires a nine-lane barrage of dedicated energy pulses', function () {
+  // Given: an active overdrive super weapon with an empty projectile field.
+  const world = new GeometryWorld()
+  world.reset()
+  world.bullets.length = 0
+  world.overloadTimer = 8
+
+  // When: one volley is fired.
+  world.fire(0)
+
+  // Then: all nine lanes use the overload visual kind instead of arrow-like standard bolts.
+  assert.equal(world.bullets.length, 9)
+  assert.ok(world.bullets.every(function (bullet) { return bullet.kind === 'overload' }))
 })
 
 test('first spinner hit restores five seconds of smoothly homing missiles', function () {
@@ -289,8 +297,143 @@ test('enemy and super-event colors match the historical review build', function 
   ])
 })
 
+test('kills drop magnetized geoms that raise the multiplier and reset on death', function () {
+  // Given: six grunts destroyed near the player.
+  const world = new GeometryWorld()
+  world.reset()
+  world.events.length = 0
+  for (let index = 0; index < 6; index += 1) {
+    const enemy = world.spawnEnemy('grunt', 60 + index * 4, 0)
+    enemy.spawnTimer = 0
+    world.killEnemy(enemy)
+  }
+  assert.equal(world.geoms.length, 6)
+
+  // When: the dropped crystals magnetize to the stationary player over time.
+  let guard = 0
+  while (world.geoms.some(function (geom) { return !geom.dead }) && guard < 2000) {
+    world.updateGeoms(0.033)
+    guard += 1
+  }
+
+  // Then: every geom is collected, the multiplier climbs, and death resets it.
+  assert.equal(world.geomTotal, 6)
+  assert.equal(world.multiplier, 2)
+  assert.ok(world.events.some(function (event) { return event.kind === 'geom' }))
+  world.player.invulnerable = 0
+  world.loseLife()
+  assert.equal(world.multiplier, 1)
+  assert.equal(world.geomTotal, 0)
+})
+
+test('chain detonation clears enemies without dropping multiplier geoms', function () {
+  // Given: three live grunts and the detonation super weapon.
+  const world = new GeometryWorld()
+  world.reset()
+  world.events.length = 0
+  for (let index = 0; index < 3; index += 1) world.spawnEnemy('grunt', -120 + index * 90, 200)
+  world.activateSuperWeapon('detonation')
+
+  // When: the staggered self-destruct chain resolves.
+  for (let step = 0; step < 40; step += 1) world.updateEnemies(0.05)
+
+  // Then: every enemy is gone and no geoms entered the field.
+  assert.ok(world.enemies.every(function (enemy) { return enemy.dead }))
+  assert.equal(world.geoms.length, 0)
+})
+
+test('a fed black hole devours enemies and erupts into a grunt ring', function () {
+  // Given: an active black hole with a wanderer drifting beside it.
+  const world = new GeometryWorld()
+  world.reset()
+  world.events.length = 0
+  world.enemies.length = 0
+  const blackhole = world.spawnEnemy('blackhole', 220, 0)
+  blackhole.spawnTimer = 0
+  const snack = world.spawnEnemy('wanderer', 258, 0)
+  snack.spawnTimer = 0
+
+  // When: repeated frames pull the wanderer in while bullets feed the core.
+  let guard = 0
+  while (!blackhole.dead && guard < 4000) {
+    world.bullets.push({ x: blackhole.x, y: blackhole.y, vx: 0, vy: 0, angle: 0, life: 1, radius: 3, kind: 'bullet', source: 'player' })
+    world.updateEnemies(0.016)
+    world.bullets.length = 0
+    guard += 1
+  }
+
+  // Then: the snack is consumed for no score and the eruption spawns six grunts.
+  assert.equal(blackhole.dead, true)
+  assert.equal(snack.dead, true)
+  assert.equal(world.score, blackhole.value * world.multiplier)
+  const grunts = world.enemies.filter(function (enemy) { return enemy.kind === 'grunt' })
+  assert.equal(grunts.length, 6)
+  assert.ok(world.events.some(function (event) { return event.kind === 'super' && event.text === 'BLACK HOLE ERUPTED' }))
+})
+
+test('weavers sidestep approaching fire', function () {
+  // Given: a weaver in the path of an incoming player bullet.
+  const world = new GeometryWorld()
+  world.reset()
+  const weaver = world.spawnEnemy('weaver', 100, 0)
+  weaver.spawnTimer = 0
+  world.bullets.length = 0
+  world.bullets.push({ x: 30, y: 0, vx: 790, vy: 0, angle: 0, life: 1, radius: 3, kind: 'bullet', source: 'player', target: null })
+
+  // When: one enemy update observes the threat.
+  world.updateEnemies(0.016)
+
+  // Then: the weaver receives a lateral dodge impulse and enters cooldown.
+  assert.ok(Math.abs(weaver.vy) > 100)
+  assert.ok(weaver.dodgeTimer > 0)
+})
+
+test('geom collection caps the multiplier at the documented ceiling', function () {
+  // Given: a long collection streak simulated directly through the economy.
+  const world = new GeometryWorld()
+  world.reset()
+
+  // When: far more geoms than the ceiling are collected.
+  for (let index = 0; index < 300; index += 1) {
+    world.spawnGeoms(0, 0, 1)
+    world.geoms[world.geoms.length - 1].x = world.player.x
+    world.geoms[world.geoms.length - 1].y = world.player.y
+    world.updateGeoms(0.016)
+    world.cleanup()
+  }
+
+  // Then: the multiplier stops at the design ceiling.
+  assert.equal(world.multiplier, 25)
+})
+
+test('a three-minute soak run keeps every interacting subsystem inside its budget', function () {
+  // Given: a deterministic world driven by a circling one-thumb player.
+  const world = new GeometryWorld()
+  world.reset()
+  const controls = { move: { x: 0, y: 0 }, aim: { x: 0, y: 0 }, engaged: true, start: false, pause: false }
+  let heading = 0
+
+  // When: three minutes of continuous play advance frame by frame.
+  for (let frame = 0; frame < 60 * 180; frame += 1) {
+    heading += 0.031
+    controls.move.x = Math.cos(heading)
+    controls.move.y = Math.sin(heading)
+    world.update(1 / 60, controls)
+    if (world.state !== 'playing') world.reset()
+    assert.ok(world.enemies.length <= 100, `enemy budget exceeded at frame ${frame}`)
+    assert.ok(world.geoms.length <= 91, `geom budget exceeded at frame ${frame}`)
+    assert.ok(world.multiplier <= 25, `multiplier ceiling exceeded at frame ${frame}`)
+    assert.ok(Number.isFinite(world.score) && world.score >= 0, `score corrupted at frame ${frame}`)
+    world.consumeEvents()
+  }
+
+  // Then: the run survived, scored, and exercised the drop economy without drifting out of budget.
+  assert.ok(world.score > 0 || world.kills > 0)
+  assert.ok(world.geoms.length <= 90)
+})
+
 function idleControls() {
-  return { move: { x: 0, y: 0 }, aim: { x: 0, y: 0 }, engaged: false, bomb: false, start: false, pause: false }
+  return { move: { x: 0, y: 0 }, aim: { x: 0, y: 0 }, engaged: false, start: false, pause: false }
 }
 
 function crowdedWorld(kind) {
