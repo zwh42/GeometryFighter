@@ -21,6 +21,7 @@ interface InnerAudioContext {
 interface MiniGamePlatform {
   createWebAudioContext?(): AudioContext
   createInnerAudioContext?(): InnerAudioContext
+  loadSubpackage?(options: { readonly name: string; readonly success: () => void }): void
 }
 
 declare global {
@@ -42,6 +43,8 @@ export class Synth {
   private music: InnerAudioContext | null = null
   private readonly contextFactory: AudioContextFactory
   private readonly random: RandomSource
+  private musicPackageReady: boolean
+  private musicUnlocked = false
   private musicTrackIndex = -1
   private nextMusicTrackAt: number | null = null
   private nextBeat = 0
@@ -50,6 +53,15 @@ export class Synth {
   constructor(contextFactory: AudioContextFactory = createAudioContext, random: RandomSource = Math.random) {
     this.contextFactory = contextFactory
     this.random = random
+    const platform = globalThis.wx
+    this.musicPackageReady = !platform?.loadSubpackage
+    platform?.loadSubpackage?.({
+      name: 'music',
+      success: () => {
+        this.musicPackageReady = true
+        this.startMusic()
+      }
+    })
   }
 
   private nextTrackIndex(): number {
@@ -68,7 +80,7 @@ export class Synth {
 
   private startMusic(): void {
     const platform = globalThis.wx
-    if (this.music || !platform?.createInnerAudioContext) return
+    if (!this.musicUnlocked || !this.musicPackageReady || this.music || !platform?.createInnerAudioContext) return
     try {
       const music = platform.createInnerAudioContext()
       if (!music.play) return
@@ -86,6 +98,7 @@ export class Synth {
   }
 
   unlock(): void {
+    this.musicUnlocked = true
     this.startMusic()
     if (!this.context) {
       try {

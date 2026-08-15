@@ -5,7 +5,7 @@ const { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync
 const { join, resolve } = require('node:path')
 
 const project = resolve(__dirname, '..')
-const musicFiles = ['bgm.mp3', 'grid-pressure.mp3', 'grid-runner-pulse.mp3', 'gravity-coin.mp3', 'gravity-coin-alt.mp3']
+const musicFiles = ['game.js', 'bgm.mp3', 'grid-pressure.mp3', 'grid-runner-pulse.mp3', 'gravity-coin.mp3', 'gravity-coin-alt.mp3']
 const outputName = process.argv[2] || 'wechat-v1-6-0'
 if (!/^[a-zA-Z0-9._-]+$/.test(outputName)) throw new Error(`Invalid output name: ${outputName}`)
 
@@ -46,6 +46,11 @@ const outputConfigPath = join(output, 'project.config.json')
 const outputConfig = JSON.parse(readFileSync(outputConfigPath, 'utf8'))
 outputConfig.appid = projectConfig.appid
 writeFileSync(outputConfigPath, `${JSON.stringify(outputConfig)}\n`)
+
+const gameConfigPath = join(output, 'game.json')
+const gameConfig = JSON.parse(readFileSync(gameConfigPath, 'utf8'))
+gameConfig.subpackages = [{ name: 'music', root: 'music' }]
+writeFileSync(gameConfigPath, `${JSON.stringify(gameConfig)}\n`)
 
 const musicDirectory = join(output, 'music')
 mkdirSync(musicDirectory, { recursive: true })

@@ -209,6 +209,43 @@ test('first gesture starts the packaged looping background track', function () {
   assert.equal(cocosMusic.playCount, 1)
 })
 
+test('packaged music waits for its WeChat subpackage after the unlock gesture', function () {
+  // Given: the first touch happens while the music subpackage is still loading.
+  const originalPlatform = globalThis.wx
+  const music = new FakeInnerAudioContext()
+  let loadRequest = null
+  globalThis.wx = {
+    loadSubpackage: function (options) { loadRequest = options },
+    createInnerAudioContext: function () { return music }
+  }
+  const { Synth } = require('../assets/scripts/synth.ts')
+
+  // When: audio unlocks before WeChat reports that the subpackage is ready.
+  try {
+    const synth = new Synth(function () { return null }, function () { return 0 })
+    synth.unlock()
+    assert.equal(music.playCount, 0)
+    assert.equal(loadRequest.name, 'music')
+    loadRequest.success()
+  } finally {
+    globalThis.wx = originalPlatform
+  }
+
+  // Then: the chosen track starts immediately after the package becomes available.
+  assert.equal(music.src, 'music/bgm.mp3')
+  assert.equal(music.playCount, 1)
+})
+
+test('WeChat build declares the soundtrack directory as a subpackage', function () {
+  // Given: the release packager that copies the restored soundtrack.
+  const buildSource = readFileSync(join(__dirname, '..', 'scripts', 'build-wechat.js'), 'utf8')
+
+  // Then: it also writes the matching package declaration and entry point.
+  assert.match(buildSource, /gameConfig\.subpackages/)
+  assert.match(buildSource, /root: 'music'/)
+  assert.equal(readFileSync(join(__dirname, '..', 'music', 'game.js'), 'utf8'), 'module.exports = {}\n')
+})
+
 test('looping music survives an unavailable effects audio context', function () {
   // Given: music support is present while the optional WebAudio effects factory fails.
   const originalPlatform = globalThis.wx
