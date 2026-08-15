@@ -30,7 +30,7 @@ import {
   normalized,
   weaponTier
 } from './simulation'
-import type { Bullet, ControlState, Enemy, Vector, WorldEvent } from './simulation'
+import type { Ally, Bullet, ControlState, Enemy, Supply, Vector, WorldEvent } from './simulation'
 import {
   DESIGN_HEIGHT,
   DESIGN_WIDTH,
@@ -41,6 +41,7 @@ import {
   RENDER_PIXEL_RATIO,
   STAR_COUNT,
   gridBounds,
+  scoreHudAnchor,
   gridPointCount,
   gridPointIndex
 } from './presentation'
@@ -233,6 +234,8 @@ export class GeometryFighter extends Component {
     scoreTransform?.setContentSize(LAYOUT.scoreWidth, LAYOUT.scoreHeight)
     scoreTransform?.setAnchorPoint(0, 0.5)
     this.statusLabel = this.createLabel('Status', TYPOGRAPHY.hudSecondary, COLORS.yellow)
+    this.statusLabel.horizontalAlign = Label.HorizontalAlign.RIGHT
+    this.statusLabel.node.getComponent(UITransform)?.setAnchorPoint(1, 0.5)
     this.titleLabel = this.createLabel('Title', TYPOGRAPHY.display, COLORS.white)
     this.titleLabel.string = 'GEOMETRY\nFIGHTER'
     this.titleLabel.lineHeight = TYPOGRAPHY.displayLineHeight
@@ -387,6 +390,14 @@ export class GeometryFighter extends Component {
         this.synth.tone(event.kind === 'reward' ? 760 : 430, 0.18, 0.05, 'sine', 1.7)
       } else if (event.kind === 'blackhole') {
         this.spawnBurst({ x: event.x, y: event.y, color: COLORS.magenta, count: 4, speed: 100 })
+      } else if (event.kind === 'supply') {
+        if (event.text) this.showMessage(event.text, event.color, 1.15)
+        this.spawnBurst({ x: event.x, y: event.y, color: event.color, count: event.text ? 18 : 6, speed: event.text ? 160 : 90 })
+      } else if (event.kind === 'super') {
+        this.showMessage(event.text, event.color, 1.4)
+        this.spawnBurst({ x: event.x, y: event.y, color: event.color, count: 56, speed: 310 })
+        this.addRipple({ x: event.x, y: event.y, radius: 10, speed: 360, life: 0.75, maxLife: 0.75, strength: 30, color: event.color })
+        this.synth.tone(620, 0.24, 0.06, 'square', 1.85)
       }
     }
   }
@@ -632,14 +643,20 @@ export class GeometryFighter extends Component {
   }
 
   private drawBullet(graphics: Graphics, bullet: Bullet, glow: boolean): void {
-    const tail = 20
+    const tail = bullet.kind === 'missile' ? 30 : 20
     const x2 = bullet.x - Math.cos(bullet.angle) * tail
     const y2 = bullet.y - Math.sin(bullet.angle) * tail
     graphics.lineWidth = glow ? STROKES.bulletGlow : STROKES.bulletMain
-    graphics.strokeColor = glow ? this.color(COLORS.yellow, 55) : this.color(COLORS.white)
+    graphics.strokeColor = glow
+      ? this.color(bullet.kind === 'missile' ? COLORS.orange : COLORS.yellow, bullet.kind === 'missile' ? 70 : 55)
+      : this.color(COLORS.white)
     graphics.moveTo(bullet.x, bullet.y)
     graphics.lineTo(x2, y2)
     graphics.stroke()
+    if (!glow && bullet.kind === 'missile') {
+      graphics.fillColor = this.color(COLORS.white)
+      this.polygon(graphics, bullet.x, bullet.y, 7 * this.touchControls.unitsPerPixel, 3, bullet.angle, true)
+    }
   }
 
   private renderEntities(graphics: Graphics): void {
@@ -648,6 +665,8 @@ export class GeometryFighter extends Component {
       const spawnAlpha = enemy.spawnTimer > 0 ? 1 - enemy.spawnTimer / 0.45 : 1
       this.drawEnemy(graphics, enemy, true, spawnAlpha)
     }
+    for (const supply of this.world.supplies) if (!supply.dead) this.drawSupply(graphics, supply, true)
+    for (const ally of this.world.allies) if (ally.life > 0) this.drawAlly(graphics, ally, true)
     if (this.world.player.alive) {
       const flicker = this.world.player.invulnerable > 0 && Math.floor(this.time * 14) % 2 === 0
       if (!flicker) this.drawPlayer(graphics, true)
@@ -657,6 +676,8 @@ export class GeometryFighter extends Component {
       const spawnAlpha = enemy.spawnTimer > 0 ? 1 - enemy.spawnTimer / 0.45 : 1
       this.drawEnemy(graphics, enemy, false, spawnAlpha)
     }
+    for (const supply of this.world.supplies) if (!supply.dead) this.drawSupply(graphics, supply, false)
+    for (const ally of this.world.allies) if (ally.life > 0) this.drawAlly(graphics, ally, false)
     if (this.world.player.alive) {
       const flicker = this.world.player.invulnerable > 0 && Math.floor(this.time * 14) % 2 === 0
       if (!flicker) this.drawPlayer(graphics, false)
@@ -685,6 +706,76 @@ export class GeometryFighter extends Component {
       else graphics.lineTo(x, y)
     }
     graphics.stroke()
+  }
+
+  private drawAlly(graphics: Graphics, ally: Ally, glow: boolean): void {
+    const scale = this.touchControls.unitsPerPixel
+    const forwardX = Math.cos(ally.angle)
+    const forwardY = Math.sin(ally.angle)
+    const sideX = -forwardY
+    const sideY = forwardX
+    graphics.lineWidth = (glow ? 10 : 1.8) * scale
+    graphics.strokeColor = this.color(COLORS.cyan, glow ? 62 : 255)
+    graphics.circle(ally.x, ally.y, 5.5 * scale)
+    graphics.stroke()
+    graphics.moveTo(ally.x + forwardX * 12 * scale, ally.y + forwardY * 12 * scale)
+    graphics.lineTo(ally.x + (forwardX * 3 + sideX * 7) * scale, ally.y + (forwardY * 3 + sideY * 7) * scale)
+    graphics.lineTo(ally.x + (-forwardX * 7 + sideX * 4) * scale, ally.y + (-forwardY * 7 + sideY * 4) * scale)
+    graphics.moveTo(ally.x + (forwardX * 3 - sideX * 7) * scale, ally.y + (forwardY * 3 - sideY * 7) * scale)
+    graphics.lineTo(ally.x + forwardX * 12 * scale, ally.y + forwardY * 12 * scale)
+    graphics.lineTo(ally.x + (-forwardX * 7 - sideX * 4) * scale, ally.y + (-forwardY * 7 - sideY * 4) * scale)
+    graphics.stroke()
+  }
+
+  private drawSupply(graphics: Graphics, supply: Supply, glow: boolean): void {
+    const scale = this.touchControls.unitsPerPixel
+    const alpha = supply.spawnTimer > 0 ? 1 - supply.spawnTimer / 0.6 : 1
+    const rotation = this.time * (glow ? 0.65 : -0.85)
+    graphics.lineWidth = (glow ? 13 : 2.2) * scale
+    graphics.strokeColor = this.color(COLORS.hud, Math.floor(alpha * (glow ? 68 : 255)))
+    graphics.circle(supply.x, supply.y, supply.radius + 4 * scale)
+    graphics.stroke()
+    for (let orbit = 0; orbit < 2; orbit += 1) {
+      const orbitRadius = supply.radius - (3 + orbit * 6) * scale
+      const orbitStart = rotation * (orbit === 0 ? -1.8 : 2.1) + orbit * Math.PI * 0.5
+      graphics.arc(supply.x, supply.y, orbitRadius, orbitStart, orbitStart + Math.PI * 1.25, false)
+      graphics.stroke()
+    }
+    for (let ray = 0; ray < 4; ray += 1) {
+      const rayAngle = ray * Math.PI * 0.5 - rotation * 0.4
+      graphics.moveTo(supply.x + Math.cos(rayAngle) * (supply.radius + 8 * scale), supply.y + Math.sin(rayAngle) * (supply.radius + 8 * scale))
+      graphics.lineTo(supply.x + Math.cos(rayAngle) * (supply.radius + 16 * scale), supply.y + Math.sin(rayAngle) * (supply.radius + 16 * scale))
+    }
+    graphics.stroke()
+    graphics.strokeColor = this.color(COLORS.white, Math.floor(alpha * (glow ? 62 : 255)))
+    if (supply.effect === 'detonation') {
+      for (let spoke = 0; spoke < 6; spoke += 1) {
+        const spokeAngle = rotation + spoke / 6 * Math.PI * 2
+        graphics.moveTo(supply.x + Math.cos(spokeAngle) * 3 * scale, supply.y + Math.sin(spokeAngle) * 3 * scale)
+        graphics.lineTo(supply.x + Math.cos(spokeAngle) * 11 * scale, supply.y + Math.sin(spokeAngle) * 11 * scale)
+      }
+      graphics.stroke()
+    } else if (supply.effect === 'overload') {
+      graphics.moveTo(supply.x + 2 * scale, supply.y + 11 * scale)
+      graphics.lineTo(supply.x - 5 * scale, supply.y - scale)
+      graphics.lineTo(supply.x + scale, supply.y - scale)
+      graphics.lineTo(supply.x - 2 * scale, supply.y - 11 * scale)
+      graphics.lineTo(supply.x + 7 * scale, supply.y + 3 * scale)
+      graphics.lineTo(supply.x + scale, supply.y + 3 * scale)
+      graphics.stroke()
+    } else {
+      this.polygon(graphics, supply.x, supply.y, 9 * scale, 3, rotation, false)
+      graphics.fillColor = this.color(COLORS.white, Math.floor(alpha * 255))
+      graphics.circle(supply.x, supply.y, 2.6 * scale)
+      graphics.fill()
+    }
+    if (glow) return
+    for (let index = 0; index < supply.maxHealth; index += 1) {
+      const angle = index / supply.maxHealth * Math.PI * 2 - Math.PI * 0.5
+      graphics.fillColor = this.color(COLORS.white, index < supply.health ? 255 : 50)
+      graphics.circle(supply.x + Math.cos(angle) * (supply.radius + 8 * scale), supply.y + Math.sin(angle) * (supply.radius + 8 * scale), 2 * scale)
+      graphics.fill()
+    }
   }
 
   private drawEnemy(graphics: Graphics, enemy: Enemy, glow: boolean, alpha: number): void {
@@ -858,10 +949,19 @@ export class GeometryFighter extends Component {
   private updateInterface(): void {
     const width = this.world.width
     const height = this.world.height
-    this.scoreLabel.node.setPosition(-width * 0.5 + LAYOUT.scoreEdge, height * 0.5 - LAYOUT.scoreTop)
+    const hud = scoreHudAnchor({ width, height }, sys.getSafeAreaRect(false), LAYOUT.scoreHeight)
+    this.scoreLabel.node.setPosition(hud.x, hud.y)
     this.setLabelText(this.scoreLabel, `SCORE  ${this.scoreText(this.world.score)}\nHIGH   ${this.scoreText(this.world.highScore)}`)
-    this.statusLabel.node.setPosition(0, height * 0.5 - LAYOUT.statusTop)
-    this.setLabelText(this.statusLabel, `×${this.world.multiplier}    ◇ ${this.world.lives}    ✦ ${this.world.bombs}    W${weaponTier(this.world.score)}`)
+    const statusWidth = width - LAYOUT.scoreWidth - LAYOUT.scoreEdge * 3
+    this.statusLabel.node.getComponent(UITransform)?.setContentSize(statusWidth, LAYOUT.scoreHeight)
+    this.statusLabel.node.setPosition(width * 0.5 - LAYOUT.scoreEdge, hud.y)
+    const specialStatus: string[] = []
+    if (this.world.missileTimer > 0) specialStatus.push(`MISSILE ${this.world.missileTimer.toFixed(1)}`)
+    if (this.world.overloadTimer > 0) specialStatus.push(`OVERDRIVE ${this.world.overloadTimer.toFixed(1)}`)
+    if (this.world.allies.length > 0) specialStatus.push(`ALLY ×${this.world.allies.length}`)
+    const specialLine = specialStatus.length > 0 ? `\n${specialStatus.join('  ')}` : ''
+    const supplyLine = this.world.supplies.some((supply) => !supply.dead) ? 'SUPER ACTIVE' : `SUPER ${Math.max(0, Math.ceil(this.world.supplyClock))}s`
+    this.setLabelText(this.statusLabel, `×${this.world.multiplier}   ◇ ${this.world.lives}   ✦ ${this.world.bombs}   W${weaponTier(this.world.score)}${specialLine}\n${supplyLine}`)
     this.titleLabel.node.setPosition(0, LAYOUT.titleY)
     this.subtitleLabel.node.setPosition(0, LAYOUT.subtitleY)
     this.promptLabel.node.setPosition(0, LAYOUT.promptY)

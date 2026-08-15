@@ -37,6 +37,128 @@ test('smart bomb bounds presentation events when destroying a crowded wave', fun
   assert.equal(world.events.filter(function (event) { return event.kind === 'bomb' }).length, 1)
 })
 
+test('timed super supplies require eight hits and activate their stored effect', function () {
+  // Given: a playing world whose passive supply timer has elapsed.
+  const world = new GeometryWorld()
+  world.reset()
+  world.events.length = 0
+  world.supplyClock = 0
+
+  // When: one frame advances and an overload supply is then hit eight times.
+  world.update(0.016, idleControls())
+  assert.equal(world.supplies.length, 1)
+  const supply = world.spawnSupply(100, 0, 'overload')
+  supply.spawnTimer = 0
+  for (let hit = 0; hit < 8; hit += 1) {
+    world.bullets.push({ x: supply.x, y: supply.y, vx: 0, vy: 0, angle: 0, life: 1, radius: 3, kind: 'bullet', source: 'player' })
+    world.resolveCollisions()
+  }
+
+  // Then: the orbital beacon is destroyed on the eighth hit and grants eight seconds of overdrive.
+  assert.equal(supply.dead, true)
+  assert.equal(supply.health, 0)
+  assert.equal(world.overloadTimer, 8)
+})
+
+test('score milestone restores a super supply instead of replenishing a smart bomb', function () {
+  // Given: a kill worth the remaining points before the 100,000-point milestone.
+  const world = new GeometryWorld()
+  world.reset()
+  world.score = 99900
+  world.events.length = 0
+  const bombs = world.bombs
+  const enemy = world.spawnEnemy('grunt', 120, 0)
+  enemy.spawnTimer = 0
+
+  // When: the target is destroyed.
+  world.killEnemy(enemy)
+
+  // Then: the historical supply trigger returns while the current finite bomb inventory remains intact.
+  assert.equal(world.supplies.length, 1)
+  assert.equal(world.supplies[0].maxHealth, 8)
+  assert.equal(world.bombs, bombs)
+})
+
+test('all historical super forms coexist with smart bombs', function () {
+  // Given: live enemies and the current three-bomb inventory.
+  const world = new GeometryWorld()
+  world.reset()
+  const first = world.spawnEnemy('grunt', 100, 0)
+  const second = world.spawnEnemy('weaver', 140, 0)
+  first.spawnTimer = 0
+  second.spawnTimer = 0
+
+  // When: detonation, ally wing, and overload are activated in sequence.
+  world.activateSuperWeapon('detonation')
+  world.activateSuperWeapon('allies')
+  world.activateSuperWeapon('overload')
+
+  // Then: enemies enter the staggered chain, 3-5 allies deploy for 12 seconds, overdrive lasts 8 seconds, and bombs remain available.
+  assert.ok(first.selfDestruct > 0)
+  assert.ok(second.selfDestruct > first.selfDestruct)
+  assert.ok(world.allies.length >= 3 && world.allies.length <= 5)
+  assert.ok(world.allies.every(function (ally) { return ally.life === 12 }))
+  assert.equal(world.overloadTimer, 8)
+  assert.equal(world.bombs, 3)
+})
+
+test('first spinner hit restores five seconds of smoothly homing missiles', function () {
+  // Given: a spinner in the path of one player bullet.
+  const world = new GeometryWorld()
+  world.reset()
+  const spinner = world.spawnEnemy('spinner', 40, 0)
+  spinner.spawnTimer = 0
+  world.bullets.push({ x: 40, y: 0, vx: 0, vy: 0, angle: 0, life: 1, radius: 3, kind: 'bullet', source: 'player' })
+
+  // When: collision resolves and the player fires again.
+  world.resolveCollisions()
+  world.fire(0)
+
+  // Then: the timed missile form is active and the new projectile carries its distinct kind.
+  assert.equal(world.missileTimer, 5)
+  assert.equal(world.bullets[world.bullets.length - 1].kind, 'missile')
+})
+
+test('crowded collision broad phase avoids scanning every enemy for every bullet', function () {
+  // Given: 100 enemies far from 180 live bullets, with radius access counting candidate checks.
+  const world = crowdedWorld('grunt')
+  let checks = 0
+  for (const enemy of world.enemies) {
+    const radius = enemy.radius
+    Object.defineProperty(enemy, 'radius', {
+      configurable: true,
+      get: function () { checks += 1; return radius },
+      set: function () {}
+    })
+  }
+
+  // When: projectile collisions are resolved.
+  world.resolveCollisions()
+
+  // Then: a local broad phase replaces the previous 18,000 radius checks.
+  assert.ok(checks < 1000, `expected fewer than 1000 candidate checks, got ${checks}`)
+})
+
+test('bullet forces scan a filtered repulsar list once per frame', function () {
+  // Given: a crowded wave containing no repulsars.
+  const world = crowdedWorld('grunt')
+  let kindReads = 0
+  for (const enemy of world.enemies) {
+    const kind = enemy.kind
+    Object.defineProperty(enemy, 'kind', {
+      configurable: true,
+      get: function () { kindReads += 1; return kind },
+      set: function () {}
+    })
+  }
+
+  // When: all bullets update for one frame.
+  world.updateBullets(0)
+
+  // Then: enemies are classified once instead of 100 times per projectile.
+  assert.ok(kindReads < 500, `expected fewer than 500 kind reads, got ${kindReads}`)
+})
+
 test('cleanup compacts entity arrays without replacing their backing storage', function () {
   // Given: live and expired entities in arrays observed by the renderer.
   const world = new GeometryWorld()
@@ -152,3 +274,22 @@ test('enemy semantic colors follow the Cocos design tokens', function () {
     assert.equal(world.enemyColor(kind), color)
   }
 })
+
+function idleControls() {
+  return { move: { x: 0, y: 0 }, aim: { x: 0, y: 0 }, engaged: false, bomb: false, start: false, pause: false }
+}
+
+function crowdedWorld(kind) {
+  const world = new GeometryWorld()
+  world.reset()
+  world.enemies.length = 0
+  world.bullets.length = 0
+  for (let index = 0; index < 100; index += 1) {
+    const enemy = world.spawnEnemy(kind, -320 + index % 10 * 64, -520 + Math.floor(index / 10) * 80)
+    enemy.spawnTimer = 0
+  }
+  for (let index = 0; index < 180; index += 1) {
+    world.bullets.push({ x: -340 + index % 18 * 40, y: 610, vx: 0, vy: 0, angle: 0, life: 1, radius: 3, kind: 'bullet', source: 'player' })
+  }
+  return world
+}

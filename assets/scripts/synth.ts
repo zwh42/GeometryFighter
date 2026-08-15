@@ -1,6 +1,13 @@
 const MUSIC_NOTES = [110, 110, 164.81, 130.81, 110, 220, 146.83, 164.81] as const
 const MUSIC_STEP_SECONDS = 0.36
-const MUSIC_TRACK = 'music/bgm.mp3'
+const MUSIC_TRACKS = [
+  'music/bgm.mp3',
+  'music/grid-pressure.mp3',
+  'music/grid-runner-pulse.mp3',
+  'music/gravity-coin.mp3',
+  'music/gravity-coin-alt.mp3'
+] as const
+const MUSIC_ROTATION_SECONDS = 60
 const MUSIC_VOLUME = 0.24
 
 interface InnerAudioContext {
@@ -21,6 +28,7 @@ declare global {
 }
 
 export type AudioContextFactory = () => AudioContext | null
+export type RandomSource = () => number
 
 function createAudioContext(): AudioContext | null {
   const platform = globalThis.wx
@@ -33,11 +41,29 @@ export class Synth {
   private context: AudioContext | null = null
   private music: InnerAudioContext | null = null
   private readonly contextFactory: AudioContextFactory
+  private readonly random: RandomSource
+  private musicTrackIndex = -1
+  private nextMusicTrackAt: number | null = null
   private nextBeat = 0
   private beatStep = 0
 
-  constructor(contextFactory: AudioContextFactory = createAudioContext) {
+  constructor(contextFactory: AudioContextFactory = createAudioContext, random: RandomSource = Math.random) {
     this.contextFactory = contextFactory
+    this.random = random
+  }
+
+  private nextTrackIndex(): number {
+    if (this.musicTrackIndex < 0) return Math.min(MUSIC_TRACKS.length - 1, Math.floor(this.random() * MUSIC_TRACKS.length))
+    const candidate = Math.min(MUSIC_TRACKS.length - 2, Math.floor(this.random() * (MUSIC_TRACKS.length - 1)))
+    return candidate >= this.musicTrackIndex ? candidate + 1 : candidate
+  }
+
+  private rotateMusic(): void {
+    const music = this.music
+    if (!music?.play) return
+    this.musicTrackIndex = this.nextTrackIndex()
+    music.src = MUSIC_TRACKS[this.musicTrackIndex]
+    music.play()
   }
 
   private startMusic(): void {
@@ -49,7 +75,8 @@ export class Synth {
       music.loop = true
       music.autoplay = false
       music.volume = MUSIC_VOLUME
-      music.src = MUSIC_TRACK
+      this.musicTrackIndex = this.nextTrackIndex()
+      music.src = MUSIC_TRACKS[this.musicTrackIndex]
       this.music = music
       music.play()
     } catch (error) {
@@ -72,7 +99,16 @@ export class Synth {
   }
 
   update(time: number, active: boolean): void {
-    if (!active || !this.context || this.music) {
+    if (this.music) {
+      if (this.nextMusicTrackAt === null) this.nextMusicTrackAt = time + MUSIC_ROTATION_SECONDS
+      while (time >= this.nextMusicTrackAt) {
+        this.rotateMusic()
+        this.nextMusicTrackAt += MUSIC_ROTATION_SECONDS
+      }
+      this.nextBeat = time
+      return
+    }
+    if (!active || !this.context) {
       this.nextBeat = time
       return
     }

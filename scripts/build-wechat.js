@@ -5,7 +5,8 @@ const { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync
 const { join, resolve } = require('node:path')
 
 const project = resolve(__dirname, '..')
-const outputName = process.argv[2] || 'wechat-v1-5-5'
+const musicFiles = ['bgm.mp3', 'grid-pressure.mp3', 'grid-runner-pulse.mp3', 'gravity-coin.mp3', 'gravity-coin-alt.mp3']
+const outputName = process.argv[2] || 'wechat-v1-6-0'
 if (!/^[a-zA-Z0-9._-]+$/.test(outputName)) throw new Error(`Invalid output name: ${outputName}`)
 
 const creator = process.env.COCOS_CREATOR_PATH || '/Applications/Cocos/Creator/3.8.8/CocosCreator.app/Contents/MacOS/CocosCreator'
@@ -48,7 +49,7 @@ writeFileSync(outputConfigPath, `${JSON.stringify(outputConfig)}\n`)
 
 const musicDirectory = join(output, 'music')
 mkdirSync(musicDirectory, { recursive: true })
-copyFileSync(join(project, 'music', 'bgm.mp3'), join(musicDirectory, 'bgm.mp3'))
+for (const musicFile of musicFiles) copyFileSync(join(project, 'music', musicFile), join(musicDirectory, musicFile))
 
 if (result.status !== 0) {
   process.stderr.write(`Cocos finished successfully; ignored macOS helper teardown status ${String(result.status)}.\n`)

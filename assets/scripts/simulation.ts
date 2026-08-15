@@ -1,7 +1,9 @@
 import { COLORS } from './design-tokens.ts'
+import { SpatialIndex } from './spatial-index.ts'
 
 export type EnemyKind = 'wanderer' | 'grunt' | 'weaver' | 'spinner' | 'snake' | 'repulsar' | 'blackhole'
 export type GameState = 'title' | 'playing' | 'paused' | 'gameover'
+export type SuperWeaponKind = 'detonation' | 'overload' | 'allies'
 
 export interface Vector {
   x: number
@@ -24,6 +26,9 @@ export interface Bullet extends Vector {
   angle: number
   life: number
   radius: number
+  kind: 'bullet' | 'missile'
+  source: 'player' | 'ally'
+  target: Enemy | null
 }
 
 export interface SnakeSegment extends Vector {
@@ -45,9 +50,30 @@ export interface Enemy extends Vector {
   dead: boolean
   mass: number
   segments: SnakeSegment[]
+  missileChargeUsed: boolean
+  selfDestruct: number
 }
 
-export type WorldEventKind = 'shoot' | 'kill' | 'bomb' | 'death' | 'reward' | 'wave' | 'blackhole'
+export interface Supply extends Vector {
+  radius: number
+  health: number
+  maxHealth: number
+  effect: SuperWeaponKind
+  spawnTimer: number
+  age: number
+  life: number
+  dead: boolean
+}
+
+export interface Ally extends Vector {
+  angle: number
+  phase: number
+  life: number
+  fireTimer: number
+  target: Enemy | null
+}
+
+export type WorldEventKind = 'shoot' | 'kill' | 'bomb' | 'death' | 'reward' | 'wave' | 'blackhole' | 'supply' | 'super'
 
 export interface WorldEvent {
   kind: WorldEventKind
@@ -91,6 +117,15 @@ const ENEMY_LOGICAL_RADIUS: Record<EnemyKind, number> = {
 const BOMB_KILL_EVENT_LIMIT = 6
 const MAX_LIVE_ENEMIES = 100
 export const MAX_BULLETS = 180
+const MISSILE_DURATION = 5
+const MISSILE_SPEED = 650
+const MISSILE_TURN_RATE = 5.4
+const SUPPLY_HITS = 8
+const SUPPLY_LIFE = 18
+const OVERLOAD_DURATION = 8
+const ALLY_DURATION = 12
+const ENEMY_INDEX_CELL_SIZE = 96
+const COLLISION_QUERY_RADIUS = 64
 const AIM_ASSIST_RANGE_SQUARED = 900 * 900
 export const AIM_INPUT_THRESHOLD = 0.18
 export const AIM_HEADING_RESPONSE = 14
@@ -142,18 +177,29 @@ export class GeometryWorld {
   kills = 0
   wave = 1
   nextLife = 75000
-  nextBomb = 100000
+  nextSupply = 100000
   spawnClock = 0
+  supplyClock = 12
   fireClock = 0
   fireHeading = 0
   hasFireHeading = false
+  missileTimer = 0
+  overloadTimer = 0
   seed = 0x7219af13
   private unitsPerPixel = 1
   player: Player = this.makePlayer()
   bullets: Bullet[] = []
   enemies: Enemy[] = []
+  supplies: Supply[] = []
+  allies: Ally[] = []
   events: WorldEvent[] = []
+  private readonly enemyIndex = new SpatialIndex<Enemy>()
+  private readonly activeEnemies: Enemy[] = []
+  private readonly activeRepulsars: Enemy[] = []
+  private readonly collisionCandidates: Enemy[] = []
+  private readonly directionalTargets: Array<Enemy | Supply> = []
   private readonly normalizationScratch: Vector = { x: 0, y: 0 }
+  private enemyIndexDirty = true
 
   resize(width: number, height: number, unitsPerPixel = 1): void {
     const nextUnitsPerPixel = Math.max(0.01, unitsPerPixel)
@@ -162,10 +208,12 @@ export class GeometryWorld {
     this.player.radius *= radiusScale
     for (const bullet of this.bullets) bullet.radius *= radiusScale
     for (const enemy of this.enemies) enemy.radius *= radiusScale
+    for (const supply of this.supplies) supply.radius *= radiusScale
     this.width = Math.max(640, width)
     this.height = Math.max(360, height)
     this.player.x = clamp(this.player.x, -this.width * 0.48, this.width * 0.48)
     this.player.y = clamp(this.player.y, -this.height * 0.48, this.height * 0.48)
+    this.enemyIndexDirty = true
   }
 
   makePlayer(): Player {
@@ -197,15 +245,21 @@ export class GeometryWorld {
     this.kills = 0
     this.wave = 1
     this.nextLife = 75000
-    this.nextBomb = 100000
+    this.nextSupply = 100000
     this.spawnClock = 0.7
+    this.supplyClock = 12 + this.random() * 6
     this.fireClock = 0
     this.fireHeading = 0
     this.hasFireHeading = false
+    this.missileTimer = 0
+    this.overloadTimer = 0
     this.player = this.makePlayer()
     this.bullets.length = 0
     this.enemies.length = 0
+    this.supplies.length = 0
+    this.allies.length = 0
     this.events.length = 0
+    this.enemyIndexDirty = true
     this.pushEvent('wave', 0, 0, COLORS.gridHot, 1, 'GRID LEVEL 1')
   }
 
@@ -218,12 +272,21 @@ export class GeometryWorld {
 
     const step = Math.min(dt, 0.034)
     this.elapsed += step
+    this.missileTimer = Math.max(0, this.missileTimer - step)
+    this.overloadTimer = Math.max(0, this.overloadTimer - step)
     this.updatePlayer(step, controls)
-    this.updateBullets(step)
+    this.updateSupplies(step)
     this.updateEnemies(step)
+    this.updateBullets(step)
+    this.updateAllies(step)
     this.resolveCollisions()
     this.spawnClock -= step
     if (this.spawnClock <= 0) this.spawnWave()
+    this.supplyClock -= step
+    if (this.supplyClock <= 0 && !this.supplies.some((supply) => !supply.dead)) {
+      this.spawnSupply()
+      this.supplyClock = 18 + this.random() * 10
+    }
     if (controls.bomb) this.useBomb()
     this.cleanup()
   }
@@ -298,16 +361,20 @@ export class GeometryWorld {
 
   fire(angle: number): void {
     const tier = weaponTier(this.score)
-    const patterns = tier === 1 ? [0] : tier === 2 ? [-0.055, 0.055] : tier === 3 ? [-0.105, 0, 0.105] : [-0.17, -0.08, 0, 0.08, 0.17]
+    const patterns = this.overloadTimer > 0
+      ? [-0.28, -0.21, -0.14, -0.07, 0, 0.07, 0.14, 0.21, 0.28]
+      : tier === 1 ? [0] : tier === 2 ? [-0.055, 0.055] : tier === 3 ? [-0.105, 0, 0.105] : [-0.17, -0.08, 0, 0.08, 0.17]
     const aimX = Math.cos(angle)
     const aimY = Math.sin(angle)
     let firingAngle = angle
     let bestAlignment = -1
     let bestDistanceSquared = Number.POSITIVE_INFINITY
-    for (const enemy of this.enemies) {
-      if (enemy.dead || enemy.spawnTimer > 0) continue
-      const dx = enemy.x - this.player.x
-      const dy = enemy.y - this.player.y
+    this.directionalTargets.length = 0
+    for (const enemy of this.enemies) if (!enemy.dead && enemy.spawnTimer <= 0) this.directionalTargets.push(enemy)
+    for (const supply of this.supplies) if (!supply.dead && supply.spawnTimer <= 0) this.directionalTargets.push(supply)
+    for (const target of this.directionalTargets) {
+      const dx = target.x - this.player.x
+      const dy = target.y - this.player.y
       const distanceSquared = dx * dx + dy * dy
       if (distanceSquared > AIM_ASSIST_RANGE_SQUARED) continue
       const forwardDistance = dx * aimX + dy * aimY
@@ -320,6 +387,8 @@ export class GeometryWorld {
       bestAlignment = alignment
       bestDistanceSquared = distanceSquared
     }
+    const missile = this.missileTimer > 0
+    const missileTarget = missile ? this.nearestEnemy(this.player) : null
     for (const offset of patterns) {
       if (this.bullets.length >= MAX_BULLETS) break
       const shotAngle = firingAngle + offset
@@ -328,21 +397,33 @@ export class GeometryWorld {
       this.bullets.push({
         x: this.player.x + dx * 19 * this.unitsPerPixel,
         y: this.player.y + dy * 19 * this.unitsPerPixel,
-        vx: dx * 790,
-        vy: dy * 790,
+        vx: dx * (missile ? MISSILE_SPEED : 790),
+        vy: dy * (missile ? MISSILE_SPEED : 790),
         angle: shotAngle,
-        life: 1.2,
-        radius: (tier >= 4 ? 4 : 3) * this.unitsPerPixel
+        life: missile ? 2.2 : 1.2,
+        radius: (missile ? 4.2 : tier >= 4 ? 4 : 3) * this.unitsPerPixel,
+        kind: missile ? 'missile' : 'bullet',
+        source: 'player',
+        target: missileTarget
       })
     }
-    this.fireClock = tier >= 3 ? 0.075 : 0.09
+    this.fireClock = this.overloadTimer > 0 ? 0.042 : tier >= 3 ? 0.075 : 0.09
     this.pushEvent('shoot', this.player.x, this.player.y, COLORS.yellow, tier, '')
   }
 
   updateBullets(dt: number): void {
+    this.prepareEnemyIndex()
     for (const bullet of this.bullets) {
-      for (const enemy of this.enemies) {
-        if (enemy.dead || enemy.kind !== 'repulsar' || enemy.spawnTimer > 0) continue
+      if (bullet.kind === 'missile') {
+        if (!bullet.target || bullet.target.dead || bullet.target.spawnTimer > 0) bullet.target = this.nearestEnemy(bullet)
+        if (bullet.target) {
+          const desiredAngle = Math.atan2(bullet.target.y - bullet.y, bullet.target.x - bullet.x)
+          bullet.angle += angleDelta(bullet.angle, desiredAngle) * clamp(MISSILE_TURN_RATE * dt, 0, 1)
+          bullet.vx = Math.cos(bullet.angle) * MISSILE_SPEED
+          bullet.vy = Math.sin(bullet.angle) * MISSILE_SPEED
+        }
+      }
+      for (const enemy of this.activeRepulsars) {
         const dx = bullet.x - enemy.x
         const dy = bullet.y - enemy.y
         const distance = Math.max(1, length(dx, dy))
@@ -360,10 +441,47 @@ export class GeometryWorld {
     }
   }
 
+  private nearestEnemy(point: Vector): Enemy | null {
+    this.prepareEnemyIndex()
+    let nearest: Enemy | null = null
+    let nearestDistance = Number.POSITIVE_INFINITY
+    for (const enemy of this.activeEnemies) {
+      if (enemy.dead || enemy.spawnTimer > 0) continue
+      const dx = enemy.x - point.x
+      const dy = enemy.y - point.y
+      const distance = dx * dx + dy * dy
+      if (distance >= nearestDistance) continue
+      nearest = enemy
+      nearestDistance = distance
+    }
+    return nearest
+  }
+
+  private prepareEnemyIndex(): void {
+    if (!this.enemyIndexDirty) return
+    this.activeEnemies.length = 0
+    this.activeRepulsars.length = 0
+    for (const enemy of this.enemies) {
+      if (enemy.dead || enemy.spawnTimer > 0) continue
+      this.activeEnemies.push(enemy)
+      if (enemy.kind === 'repulsar') this.activeRepulsars.push(enemy)
+    }
+    this.enemyIndex.rebuild(this.activeEnemies, ENEMY_INDEX_CELL_SIZE * this.unitsPerPixel)
+    this.enemyIndexDirty = false
+  }
+
   updateEnemies(dt: number): void {
+    this.enemyIndexDirty = true
     const player = this.player
     for (const enemy of this.enemies) {
       if (enemy.dead) continue
+      if (enemy.selfDestruct > 0) {
+        enemy.selfDestruct -= dt
+        if (enemy.selfDestruct <= 0) {
+          this.killEnemy(enemy)
+          continue
+        }
+      }
       enemy.age += dt
       enemy.spawnTimer = Math.max(0, enemy.spawnTimer - dt)
       if (enemy.spawnTimer > 0) continue
@@ -458,10 +576,140 @@ export class GeometryWorld {
     }
   }
 
+  spawnSupply(x?: number, y?: number, effect?: SuperWeaponKind): Supply {
+    const spawnX = x ?? (this.random() - 0.5) * Math.max(120, this.width - 136)
+    const spawnY = y ?? (this.random() - 0.5) * Math.max(220, this.height - 210)
+    const effects: readonly SuperWeaponKind[] = ['detonation', 'overload', 'allies']
+    const selectedEffect = effect ?? effects[Math.min(effects.length - 1, Math.floor(this.random() * effects.length))]
+    const supply: Supply = {
+      x: spawnX,
+      y: spawnY,
+      radius: 22 * this.unitsPerPixel,
+      health: SUPPLY_HITS,
+      maxHealth: SUPPLY_HITS,
+      effect: selectedEffect,
+      spawnTimer: 0.6,
+      age: 0,
+      life: SUPPLY_LIFE,
+      dead: false
+    }
+    this.supplies.push(supply)
+    this.pushEvent('supply', supply.x, supply.y, COLORS.green, supply.maxHealth, 'SUPER SUPPLY INBOUND')
+    return supply
+  }
+
+  updateSupplies(dt: number): void {
+    for (const supply of this.supplies) {
+      if (supply.dead) continue
+      supply.age += dt
+      supply.spawnTimer = Math.max(0, supply.spawnTimer - dt)
+      supply.life -= dt
+      if (supply.life <= 0) supply.dead = true
+    }
+  }
+
+  collectSupply(supply: Supply): void {
+    if (supply.dead) return
+    supply.dead = true
+    this.activateSuperWeapon(supply.effect)
+  }
+
+  activateSuperWeapon(effect: SuperWeaponKind): void {
+    if (effect === 'detonation') {
+      let delay = 0.1
+      for (const enemy of this.enemies) {
+        if (enemy.dead) continue
+        enemy.selfDestruct = delay
+        delay += 0.065
+      }
+      this.pushEvent('super', this.player.x, this.player.y, COLORS.red, 1, 'CHAIN DETONATION')
+      return
+    }
+    if (effect === 'overload') {
+      this.overloadTimer = OVERLOAD_DURATION
+      this.pushEvent('super', this.player.x, this.player.y, COLORS.yellow, 1, 'WEAPON OVERDRIVE 8S')
+      return
+    }
+    this.spawnAllies(3 + Math.floor(this.random() * 3))
+    this.pushEvent('super', this.player.x, this.player.y, COLORS.cyan, this.allies.length, 'ALLY WING DEPLOYED')
+  }
+
+  private spawnAllies(count: number): void {
+    this.allies.length = 0
+    const amount = Math.min(5, count)
+    for (let index = 0; index < amount; index += 1) {
+      const phase = index / amount * Math.PI * 2
+      this.allies.push({
+        x: this.player.x + Math.cos(phase) * 46 * this.unitsPerPixel,
+        y: this.player.y + Math.sin(phase) * 46 * this.unitsPerPixel,
+        angle: phase,
+        phase,
+        life: ALLY_DURATION,
+        fireTimer: index * 0.07,
+        target: null
+      })
+    }
+  }
+
+  updateAllies(dt: number): void {
+    for (let index = 0; index < this.allies.length; index += 1) {
+      const ally = this.allies[index]
+      ally.life -= dt
+      if (ally.life <= 0) continue
+      ally.phase += dt * (0.72 + index * 0.035)
+      const orbit = (48 + index * 13) * this.unitsPerPixel
+      const targetX = this.player.x + Math.cos(ally.phase) * orbit
+      const targetY = this.player.y + Math.sin(ally.phase) * orbit
+      const follow = clamp(dt * 5, 0, 1)
+      ally.x += (targetX - ally.x) * follow
+      ally.y += (targetY - ally.y) * follow
+      ally.fireTimer -= dt
+      if (!ally.target || ally.target.dead || ally.target.spawnTimer > 0) ally.target = this.nearestEnemy(ally)
+      if (ally.target) ally.angle = Math.atan2(ally.target.y - ally.y, ally.target.x - ally.x)
+      if (ally.target && ally.fireTimer <= 0) {
+        this.spawnAllyBullet(ally)
+        ally.fireTimer = 0.24 + index * 0.018
+      }
+    }
+  }
+
+  private spawnAllyBullet(ally: Ally): void {
+    if (this.bullets.length >= MAX_BULLETS) return
+    const dx = Math.cos(ally.angle)
+    const dy = Math.sin(ally.angle)
+    this.bullets.push({
+      x: ally.x + dx * 11 * this.unitsPerPixel,
+      y: ally.y + dy * 11 * this.unitsPerPixel,
+      vx: dx * 820,
+      vy: dy * 820,
+      angle: ally.angle,
+      life: 1.15,
+      radius: 2.4 * this.unitsPerPixel,
+      kind: 'bullet',
+      source: 'ally',
+      target: null
+    })
+  }
+
   resolveCollisions(): void {
+    this.prepareEnemyIndex()
     for (const bullet of this.bullets) {
       if (bullet.life <= 0) continue
-      for (const enemy of this.enemies) {
+      for (const supply of this.supplies) {
+        if (supply.dead || supply.spawnTimer > 0) continue
+        const hitRadius = supply.radius + bullet.radius
+        const dx = bullet.x - supply.x
+        const dy = bullet.y - supply.y
+        if (dx * dx + dy * dy > hitRadius * hitRadius) continue
+        bullet.life = 0
+        supply.health -= 1
+        this.pushEvent('supply', supply.x, supply.y, COLORS.green, supply.health, '')
+        if (supply.health <= 0) this.collectSupply(supply)
+        break
+      }
+      if (bullet.life <= 0) continue
+      this.enemyIndex.queryInto(bullet, COLLISION_QUERY_RADIUS * this.unitsPerPixel, this.collisionCandidates)
+      for (const enemy of this.collisionCandidates) {
         if (enemy.dead || enemy.spawnTimer > 0) continue
         const hitRadius = enemy.radius + bullet.radius + BULLET_HIT_FORGIVENESS * this.unitsPerPixel
         const dx = bullet.x - enemy.x
@@ -469,6 +717,11 @@ export class GeometryWorld {
         if (dx * dx + dy * dy > hitRadius * hitRadius) continue
         bullet.life = 0
         enemy.health -= 1
+        if (enemy.kind === 'spinner' && !enemy.missileChargeUsed) {
+          enemy.missileChargeUsed = true
+          this.missileTimer = MISSILE_DURATION
+          this.pushEvent('super', enemy.x, enemy.y, COLORS.orange, 1, 'MISSILE LOCK 5S')
+        }
         if (enemy.health <= 0) this.killEnemy(enemy)
         break
       }
@@ -489,6 +742,7 @@ export class GeometryWorld {
 
   killEnemy(enemy: Enemy, emitPresentation = true): void {
     enemy.dead = true
+    this.enemyIndexDirty = true
     const gained = enemy.value * this.multiplier
     this.score += gained
     this.highScore = Math.max(this.highScore, this.score)
@@ -500,10 +754,10 @@ export class GeometryWorld {
       this.nextLife += 75000
       this.pushEvent('reward', 0, 64, COLORS.green, 1, 'EXTRA LIFE')
     }
-    while (this.score >= this.nextBomb) {
-      this.bombs += 1
-      this.nextBomb += 100000
-      this.pushEvent('reward', 0, 28, COLORS.yellow, 1, 'EXTRA BOMB')
+    while (this.score >= this.nextSupply) {
+      this.spawnSupply()
+      this.nextSupply += 100000
+      this.supplyClock = 18 + this.random() * 10
     }
   }
 
@@ -607,9 +861,12 @@ export class GeometryWorld {
       spawnTimer: 0.45,
       dead: false,
       mass: 1,
-      segments
+      segments,
+      missileChargeUsed: false,
+      selfDestruct: 0
     }
     this.enemies.push(enemy)
+    this.enemyIndexDirty = true
     return enemy
   }
 
@@ -639,6 +896,23 @@ export class GeometryWorld {
       enemyCount += 1
     }
     this.enemies.length = enemyCount
+    this.enemyIndexDirty = true
+
+    let supplyCount = 0
+    for (const supply of this.supplies) {
+      if (supply.dead) continue
+      this.supplies[supplyCount] = supply
+      supplyCount += 1
+    }
+    this.supplies.length = supplyCount
+
+    let allyCount = 0
+    for (const ally of this.allies) {
+      if (ally.life <= 0) continue
+      this.allies[allyCount] = ally
+      allyCount += 1
+    }
+    this.allies.length = allyCount
   }
 
   pushEvent(kind: WorldEventKind, x: number, y: number, color: string, amount: number, text: string): void {

@@ -25,6 +25,20 @@ test('Cocos shades at one logical device pixel instead of the full retina resolu
   assert.equal(RENDER_PIXEL_RATIO, 1)
 })
 
+test('score HUD stays fully below a Dynamic Island safe area', function () {
+  // Given: a portrait design viewport with a 90-unit top cutout inset.
+  const { scoreHudAnchor } = require('../assets/scripts/presentation.ts')
+  const viewport = { width: 720, height: 1280 }
+  const safeArea = { x: 0, y: 34, width: 720, height: 1156 }
+
+  // When: the center-anchored 80-unit score label is positioned.
+  const anchor = scoreHudAnchor(viewport, safeArea, 80)
+
+  // Then: its top edge clears the safe area by eight units and its left edge remains visible.
+  assert.deepEqual(anchor, { x: -344, y: 502, topInset: 98 })
+  assert.equal(anchor.y + 40, viewport.height * 0.5 - anchor.topInset)
+})
+
 test('Cocos entity radii preserve the early-August logical-pixel sizes', function () {
   // Given: a 720-unit world displayed on the 390-pixel reference viewport.
   const { GeometryWorld } = require('../assets/scripts/simulation.ts')
@@ -180,7 +194,7 @@ test('first gesture starts the packaged looping background track', function () {
 
   // When: the first user gesture unlocks music and a later touch unlocks it again.
   try {
-    const synth = new Synth(function () { return null })
+    const synth = new Synth(function () { return null }, function () { return 0 })
     synth.unlock()
     synth.unlock()
   } finally {
@@ -205,7 +219,7 @@ test('looping music survives an unavailable effects audio context', function () 
   try {
     // When: the first gesture unlocks audio on that device.
     assert.doesNotThrow(function () {
-      new Synth(function () { throw new Error('WebAudio unavailable') }).unlock()
+      new Synth(function () { throw new Error('WebAudio unavailable') }, function () { return 0 }).unlock()
     })
   } finally {
     globalThis.wx = originalPlatform
@@ -215,6 +229,68 @@ test('looping music survives an unavailable effects audio context', function () 
   assert.equal(music.src, 'music/bgm.mp3')
   assert.equal(music.loop, true)
   assert.equal(music.playCount, 1)
+})
+
+test('each launch can randomly select every restored background track', function () {
+  // Given: deterministic launch rolls spanning the complete early-August soundtrack.
+  const tracks = [
+    'music/bgm.mp3',
+    'music/grid-pressure.mp3',
+    'music/grid-runner-pulse.mp3',
+    'music/gravity-coin.mp3',
+    'music/gravity-coin-alt.mp3'
+  ]
+  const values = [0, 0.2, 0.4, 0.6, 0.999]
+  const originalPlatform = globalThis.wx
+  const selected = []
+  const { Synth } = require('../assets/scripts/synth.ts')
+
+  // When: five fresh audio adapters unlock with those launch rolls.
+  try {
+    for (const value of values) {
+      const music = new FakeInnerAudioContext()
+      globalThis.wx = { createInnerAudioContext: function () { return music } }
+      new Synth(function () { return null }, function () { return value }).unlock()
+      selected.push(music.src)
+    }
+  } finally {
+    globalThis.wx = originalPlatform
+  }
+
+  // Then: every packaged track is reachable and present as an MP3.
+  assert.deepEqual(selected, tracks)
+  for (const track of tracks) {
+    const bytes = readFileSync(join(__dirname, '..', track))
+    assert.equal(bytes.subarray(0, 3).toString('ascii'), 'ID3')
+  }
+})
+
+test('background music changes every minute without immediately repeating', function () {
+  // Given: an unlocked track and deterministic rolls that would otherwise repeat it.
+  const originalPlatform = globalThis.wx
+  const music = new FakeInnerAudioContext()
+  globalThis.wx = { createInnerAudioContext: function () { return music } }
+  const { Synth } = require('../assets/scripts/synth.ts')
+  const synth = new Synth(function () { return null }, function () { return 0 })
+
+  // When: the app clock crosses two one-minute boundaries.
+  try {
+    synth.unlock()
+    synth.update(0, false)
+    synth.update(59.99, false)
+    const openingTrack = music.src
+    synth.update(60, false)
+    const secondTrack = music.src
+    synth.update(120, false)
+
+    // Then: playback rotates exactly at the boundary and never picks the current track.
+    assert.equal(openingTrack, 'music/bgm.mp3')
+    assert.notEqual(secondTrack, openingTrack)
+    assert.notEqual(music.src, secondTrack)
+    assert.equal(music.playCount, 3)
+  } finally {
+    globalThis.wx = originalPlatform
+  }
 })
 
 class FakeAudioParam {

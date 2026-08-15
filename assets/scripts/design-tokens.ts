@@ -43,8 +43,8 @@ export const TOUCH = {
 export const LAYOUT = {
   arenaInset: 8,
   scoreEdge: 16,
-  scoreTop: 34,
-  statusTop: 30,
+  hudMinimumTop: 18,
+  hudSafePadding: 8,
   titleY: 82,
   subtitleY: -42,
   promptY: -116,
