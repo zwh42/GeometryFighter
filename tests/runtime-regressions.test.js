@@ -201,8 +201,8 @@ test('Cocos portrait controls keep firing through center hold and stop on releas
   assert.equal(controls.right.active, false)
 })
 
-test('Cocos fighter tokens match the review build before 2026-08-07 19:43', function () {
-  // Given: the combat-art contract from commit be22ffa.
+test('Cocos fighter traces the original claw silhouette from the 1.6.6 review feedback', function () {
+  // Given: the claw-ship contract that replaces the nine-point hull.
   const {
     FIGHTER_GLOW_ALPHA,
     FIGHTER_GLOW_COLOR,
@@ -219,19 +219,31 @@ test('Cocos fighter tokens match the review build before 2026-08-07 19:43', func
   const forwards = FIGHTER_OUTER_PATH.map(function (point) { return point.forward })
   const sides = FIGHTER_OUTER_PATH.map(function (point) { return point.side })
 
-  // Then: the nine-point hull, nested chevron, and green exhaust retain their reviewed geometry.
+  // Then: the hull keeps its footprint but now reads as the original claw.
   assert.equal(Math.max.apply(null, forwards) - Math.min.apply(null, forwards), 31)
   assert.equal(Math.max.apply(null, sides) - Math.min.apply(null, sides), 24)
   assert.deepEqual(FIGHTER_OUTER_PATH, [
-    { forward: 19, side: -10 }, { forward: 7, side: -5 }, { forward: 1, side: -12 },
-    { forward: -12, side: -10 }, { forward: -5, side: 0 }, { forward: -12, side: 10 },
-    { forward: 1, side: 12 }, { forward: 7, side: 5 }, { forward: 19, side: 10 }
+    { forward: -9, side: 0 },
+    { forward: -1, side: -6.5 },
+    { forward: 6, side: -11.5 },
+    { forward: 13.5, side: -12 },
+    { forward: 22, side: -4 },
+    { forward: 14, side: -6 },
+    { forward: 2, side: -3.7 },
+    { forward: -9, side: 0 },
+    { forward: 2, side: 3.7 },
+    { forward: 14, side: 6 },
+    { forward: 22, side: 4 },
+    { forward: 13.5, side: 12 },
+    { forward: 6, side: 11.5 },
+    { forward: -1, side: 6.5 },
+    { forward: -9, side: 0 }
   ])
   assert.deepEqual(FIGHTER_INNER_PATH, [
-    { forward: 7, side: -5 }, { forward: -5, side: 0 }, { forward: 7, side: 5 }
+    { forward: 4, side: 0 }, { forward: 0, side: -3 }, { forward: -4, side: 0 }, { forward: 0, side: 3 }, { forward: 4, side: 0 }
   ])
   assert.deepEqual(FIGHTER_THRUSTER_PATH, [
-    { forward: -8, side: 5 }, { forward: -18, side: 0 }, { forward: -8, side: -5 }
+    { forward: -8, side: 5 }, { forward: -19, side: 0 }, { forward: -8, side: -5 }
   ])
   assert.deepEqual({
     hull: FIGHTER_HULL_COLOR,
@@ -251,7 +263,8 @@ test('Cocos projectiles, enemies, allies, and super supplies use the current com
 
   // Then: each visible weapon form retains its historical silhouette and palette.
   assert.deepEqual(PROJECTILE_ART, {
-    bulletTail: 20, missileTail: 30, glowWidth: 12, coreWidth: 2.8, missileRadius: 7,
+    bulletTail: 20, missileTail: 30, glowWidth: 12, coreWidth: 2.8,
+    missileCoreRadius: 3.6, missileRingRadius: 5.8, missileRingWidth: 1.6,
     overloadTail: 16, overloadGlowWidth: 18, overloadRailWidth: 2.2, overloadCoreRadius: 4.8,
     overloadRingRadius: 7.2, overloadRailOffset: 3.8, overloadRailLength: 12,
     bulletGlow: '#ffef49', missileGlow: '#ff892a', overloadGlow: '#42efff',

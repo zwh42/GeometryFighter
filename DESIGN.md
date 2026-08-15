@@ -3,7 +3,7 @@
 ## 0. Reference Study
 
 - The official [Steam release page](https://store.steampowered.com/app/8400/Geometry_Wars_Retro_Evolved/) establishes the dark reactive grid, white open-claw player, short gold projectile streams, and silhouette-first enemy readability.
-- The shipped review snapshot immediately preceding 2026-08-07 19:43 (`be22ffa`) is the binding combat-art reference: its nine-point fighter hull, inner chevron, green exhaust, projectile palette, ally silhouette, and three super-supply marks must survive later performance work unchanged.
+- The shipped review snapshot immediately preceding 2026-08-07 19:43 (`be22ffa`) was the binding combat-art reference until the 1.6.6 review feedback (2026-08-16) superseded two primitives: the player hull now traces the original claw silhouette, and the homing missile drops its triangular head for the original round energy-orb language. All other reviewed accents survive.
 - The official [Xbox store listing](https://www.xbox.com/en-us/games/store/geometry-wars-evolved/bp5g8k2m71pm) and its gameplay art confirm the core color families: cyan diamonds, green framed cubes, magenta crossed boxes, violet pinwheels, gold segmented snakes, and red/orange black-hole rings.
 - The official [PewPew App Store listing](https://apps.apple.com/us/app/pewpew/id314964252) identifies its defining traits as multidirectional shooting, large enemy counts, five rule-driven modes, and sustained high frame rate. Its screenshots establish a cleaner pure-black field, thin luminous vector outlines, sparse magenta guides, grouped danger, and minimal telemetry.
 - The official [PewPew Live site](https://pewpew.live/) reinforces fast, diversified play and retro-futurist vector graphics. Geometry Fighter borrows those high-level principles through original silhouettes, Assault pacing, and telegraphed edge formations; it does not reproduce PewPew assets, level layouts, or interface composition.
@@ -86,16 +86,16 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 ### Fighter
 
 - **Variants**: player (white/cyan), ally (smaller cyan).
-- **Player structure**: the reviewed open nine-point hull runs from twin nose prongs through swept shoulders and a center-tail notch. A three-point inner chevron repeats the nose direction, while a separate green three-point exhaust mark sits behind the hull. Paths remain open and unfilled.
+- **Player structure**: the hull traces the original claw ship — one closed polyline whose two arms leave the rear center, sweep outward to the shoulders, then hook inward so the two sharp tips open forward and nearly meet at the nose. A small diamond cockpit mark repeats the bright core glow between the arms, while a separate green three-point exhaust mark sits behind the hull. Paths remain open and unfilled.
 - **Display scale**: the reviewed hull geometry and enemy family are rendered at `1.6×` their legacy drawing size for phone readability. The player remains visually distinct through its open hull and cyan-white palette; drawing scale stays independent from the current view-scaled collision geometry.
 - **States**: active, invulnerable flicker, destroyed, ally expiring.
 - **Motion**: the green exhaust mark and player velocity trail carry thrust feedback; allies orbit smoothly and aim independently.
-- **Accessibility**: the player's twin nose prongs and tail notch point in the firing direction and remain distinct from every closed enemy polygon; allies retain their smaller circular-chevron silhouette so they cannot be mistaken for the player.
+- **Accessibility**: the claw's forward-opening tips and rear exhaust point in the firing direction and remain distinct from every closed enemy polygon; allies retain their smaller circular-chevron silhouette so they cannot be mistaken for the player.
 
 ### Projectile
 
 - **Variants**: standard yellow bolt, orange-white homing missile, cyan ally bolt, and cyan/magenta overdrive energy pulse.
-- **Reviewed model**: standard and missile tails remain 20/30 px with 12 px glow and 2.8 px core; missiles retain the filled seven-pixel triangular head. Overdrive replaces the standard bolt with a round white plasma core, cyan containment ring, and parallel magenta stabilizer rails, avoiding an arrow silhouette while making the nine-lane barrage visibly more advanced.
+- **Reviewed model**: standard and missile tails remain 20/30 px with 12 px glow and 2.8 px core. The missile trades its former triangular head for the original game's round energy language: a filled white-hot core orb, a warm orange containment ring, and the long curved-pursuit tail — nothing in the inventory reads as an arrow. Overdrive replaces the standard bolt with a round white plasma core, cyan containment ring, and parallel magenta stabilizer rails.
 - **States**: flight, curved pursuit, impact, boundary impact.
 - **Motion**: missiles use bounded angular steering so course changes are visible and interruptible rather than snapping to a target.
 - **Accessibility**: color, width, tail length, and missile silhouette all distinguish variants.

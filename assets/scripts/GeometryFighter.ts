@@ -787,8 +787,13 @@ export class GeometryFighter extends Component {
     graphics.lineTo(x2, y2)
     graphics.stroke()
     if (!glow && bullet.kind === 'missile') {
+      graphics.lineWidth = PROJECTILE_ART.missileRingWidth
+      graphics.strokeColor = this.color(PROJECTILE_ART.missileGlow, 210)
+      graphics.circle(bullet.x, bullet.y, PROJECTILE_ART.missileRingRadius)
+      graphics.stroke()
       graphics.fillColor = this.color(PROJECTILE_ART.missileCore)
-      this.polygon(graphics, bullet.x, bullet.y, PROJECTILE_ART.missileRadius, 3, bullet.angle, true)
+      graphics.circle(bullet.x, bullet.y, PROJECTILE_ART.missileCoreRadius)
+      graphics.fill()
     }
   }
 

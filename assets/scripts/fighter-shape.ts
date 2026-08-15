@@ -5,27 +5,38 @@ export interface FighterPoint {
   readonly side: number
 }
 
+// The hull traces the original claw ship: both arms leave the rear center,
+// sweep outward, then hook inward so the two tips open forward and nearly meet.
 export const FIGHTER_OUTER_PATH: readonly FighterPoint[] = [
-  { forward: 19, side: -10 },
-  { forward: 7, side: -5 },
-  { forward: 1, side: -12 },
-  { forward: -12, side: -10 },
-  { forward: -5, side: 0 },
-  { forward: -12, side: 10 },
-  { forward: 1, side: 12 },
-  { forward: 7, side: 5 },
-  { forward: 19, side: 10 }
+  { forward: -9, side: 0 },
+  { forward: -1, side: -6.5 },
+  { forward: 6, side: -11.5 },
+  { forward: 13.5, side: -12 },
+  { forward: 22, side: -4 },
+  { forward: 14, side: -6 },
+  { forward: 2, side: -3.7 },
+  { forward: -9, side: 0 },
+  { forward: 2, side: 3.7 },
+  { forward: 14, side: 6 },
+  { forward: 22, side: 4 },
+  { forward: 13.5, side: 12 },
+  { forward: 6, side: 11.5 },
+  { forward: -1, side: 6.5 },
+  { forward: -9, side: 0 }
 ]
 
+// The bright cockpit mark sits between the arms like the original core glow.
 export const FIGHTER_INNER_PATH: readonly FighterPoint[] = [
-  { forward: 7, side: -5 },
-  { forward: -5, side: 0 },
-  { forward: 7, side: 5 }
+  { forward: 4, side: 0 },
+  { forward: 0, side: -3 },
+  { forward: -4, side: 0 },
+  { forward: 0, side: 3 },
+  { forward: 4, side: 0 }
 ]
 
 export const FIGHTER_THRUSTER_PATH: readonly FighterPoint[] = [
   { forward: -8, side: 5 },
-  { forward: -18, side: 0 },
+  { forward: -19, side: 0 },
   { forward: -8, side: -5 }
 ]
 
