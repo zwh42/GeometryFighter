@@ -46,7 +46,7 @@ import {
   gridPointIndex
 } from './presentation'
 import type { GridBounds } from './presentation'
-import { COLORS, GRID_LINES, LAYOUT, STROKES, TOUCH, TYPOGRAPHY } from './design-tokens.ts'
+import { ALLY_ART, COLORS, ENEMY_ART_RADIUS, GRID_LINES, LAYOUT, PROJECTILE_ART, STROKES, SUPER_WEAPON_ART, TOUCH, TYPOGRAPHY } from './design-tokens.ts'
 import type { GridLineStyle } from './design-tokens.ts'
 import { Synth } from './synth'
 import { TouchControls } from './touch-controls'
@@ -60,7 +60,9 @@ import {
   FIGHTER_INNER_STROKE,
   FIGHTER_OUTER_GLOW_STROKE,
   FIGHTER_OUTER_PATH,
-  FIGHTER_OUTER_STROKE
+  FIGHTER_OUTER_STROKE,
+  FIGHTER_THRUSTER_COLOR,
+  FIGHTER_THRUSTER_PATH
 } from './fighter-shape'
 
 const { ccclass } = _decorator
@@ -643,19 +645,19 @@ export class GeometryFighter extends Component {
   }
 
   private drawBullet(graphics: Graphics, bullet: Bullet, glow: boolean): void {
-    const tail = bullet.kind === 'missile' ? 30 : 20
+    const tail = bullet.kind === 'missile' ? PROJECTILE_ART.missileTail : PROJECTILE_ART.bulletTail
     const x2 = bullet.x - Math.cos(bullet.angle) * tail
     const y2 = bullet.y - Math.sin(bullet.angle) * tail
-    graphics.lineWidth = glow ? STROKES.bulletGlow : STROKES.bulletMain
+    graphics.lineWidth = glow ? PROJECTILE_ART.glowWidth : PROJECTILE_ART.coreWidth
     graphics.strokeColor = glow
-      ? this.color(bullet.kind === 'missile' ? COLORS.orange : COLORS.yellow, bullet.kind === 'missile' ? 70 : 55)
-      : this.color(COLORS.white)
+      ? this.color(bullet.kind === 'missile' ? PROJECTILE_ART.missileGlow : PROJECTILE_ART.bulletGlow, bullet.kind === 'missile' ? 70 : 55)
+      : this.color(PROJECTILE_ART.core)
     graphics.moveTo(bullet.x, bullet.y)
     graphics.lineTo(x2, y2)
     graphics.stroke()
     if (!glow && bullet.kind === 'missile') {
-      graphics.fillColor = this.color(COLORS.white)
-      this.polygon(graphics, bullet.x, bullet.y, 7 * this.touchControls.unitsPerPixel, 3, bullet.angle, true)
+      graphics.fillColor = this.color(PROJECTILE_ART.missileCore)
+      this.polygon(graphics, bullet.x, bullet.y, PROJECTILE_ART.missileRadius, 3, bullet.angle, true)
     }
   }
 
@@ -686,14 +688,17 @@ export class GeometryFighter extends Component {
 
   private drawPlayer(graphics: Graphics, glow: boolean): void {
     const player = this.world.player
-    const scale = this.touchControls.unitsPerPixel
     const forwardX = Math.cos(player.angle)
     const forwardY = Math.sin(player.angle)
     const sideX = -forwardY
     const sideY = forwardX
     graphics.strokeColor = this.color(glow ? FIGHTER_GLOW_COLOR : FIGHTER_HULL_COLOR, glow ? FIGHTER_GLOW_ALPHA : 255)
-    this.drawPlayerPath(graphics, FIGHTER_OUTER_PATH, glow ? FIGHTER_OUTER_GLOW_STROKE : FIGHTER_OUTER_STROKE, scale, player.x, player.y, forwardX, forwardY, sideX, sideY)
-    this.drawPlayerPath(graphics, FIGHTER_INNER_PATH, glow ? FIGHTER_INNER_GLOW_STROKE : FIGHTER_INNER_STROKE, scale, player.x, player.y, forwardX, forwardY, sideX, sideY)
+    this.drawPlayerPath(graphics, FIGHTER_OUTER_PATH, glow ? FIGHTER_OUTER_GLOW_STROKE : FIGHTER_OUTER_STROKE, 1, player.x, player.y, forwardX, forwardY, sideX, sideY)
+    this.drawPlayerPath(graphics, FIGHTER_INNER_PATH, glow ? FIGHTER_INNER_GLOW_STROKE : FIGHTER_INNER_STROKE, 1, player.x, player.y, forwardX, forwardY, sideX, sideY)
+    if (!glow) {
+      graphics.strokeColor = this.color(FIGHTER_THRUSTER_COLOR)
+      this.drawPlayerPath(graphics, FIGHTER_THRUSTER_PATH, FIGHTER_INNER_STROKE, 1, player.x, player.y, forwardX, forwardY, sideX, sideY)
+    }
   }
 
   private drawPlayerPath(graphics: Graphics, points: readonly { forward: number; side: number }[], stroke: number, scale: number, playerX: number, playerY: number, forwardX: number, forwardY: number, sideX: number, sideY: number): void {
@@ -709,77 +714,77 @@ export class GeometryFighter extends Component {
   }
 
   private drawAlly(graphics: Graphics, ally: Ally, glow: boolean): void {
-    const scale = this.touchControls.unitsPerPixel
     const forwardX = Math.cos(ally.angle)
     const forwardY = Math.sin(ally.angle)
     const sideX = -forwardY
     const sideY = forwardX
-    graphics.lineWidth = (glow ? 10 : 1.8) * scale
-    graphics.strokeColor = this.color(COLORS.cyan, glow ? 62 : 255)
-    graphics.circle(ally.x, ally.y, 5.5 * scale)
+    graphics.lineWidth = glow ? ALLY_ART.glowWidth : ALLY_ART.coreWidth
+    graphics.strokeColor = this.color(glow ? ALLY_ART.glow : ALLY_ART.core, glow ? ALLY_ART.glowAlpha : 255)
+    graphics.circle(ally.x, ally.y, ALLY_ART.coreRadius)
     graphics.stroke()
-    graphics.moveTo(ally.x + forwardX * 12 * scale, ally.y + forwardY * 12 * scale)
-    graphics.lineTo(ally.x + (forwardX * 3 + sideX * 7) * scale, ally.y + (forwardY * 3 + sideY * 7) * scale)
-    graphics.lineTo(ally.x + (-forwardX * 7 + sideX * 4) * scale, ally.y + (-forwardY * 7 + sideY * 4) * scale)
-    graphics.moveTo(ally.x + (forwardX * 3 - sideX * 7) * scale, ally.y + (forwardY * 3 - sideY * 7) * scale)
-    graphics.lineTo(ally.x + forwardX * 12 * scale, ally.y + forwardY * 12 * scale)
-    graphics.lineTo(ally.x + (-forwardX * 7 - sideX * 4) * scale, ally.y + (-forwardY * 7 - sideY * 4) * scale)
+    graphics.moveTo(ally.x + forwardX * ALLY_ART.nose, ally.y + forwardY * ALLY_ART.nose)
+    graphics.lineTo(ally.x + forwardX * ALLY_ART.wingForward + sideX * ALLY_ART.wingSide, ally.y + forwardY * ALLY_ART.wingForward + sideY * ALLY_ART.wingSide)
+    graphics.lineTo(ally.x + forwardX * ALLY_ART.tailForward + sideX * ALLY_ART.tailSide, ally.y + forwardY * ALLY_ART.tailForward + sideY * ALLY_ART.tailSide)
+    graphics.moveTo(ally.x + forwardX * ALLY_ART.wingForward - sideX * ALLY_ART.wingSide, ally.y + forwardY * ALLY_ART.wingForward - sideY * ALLY_ART.wingSide)
+    graphics.lineTo(ally.x + forwardX * ALLY_ART.nose, ally.y + forwardY * ALLY_ART.nose)
+    graphics.lineTo(ally.x + forwardX * ALLY_ART.tailForward - sideX * ALLY_ART.tailSide, ally.y + forwardY * ALLY_ART.tailForward - sideY * ALLY_ART.tailSide)
     graphics.stroke()
   }
 
   private drawSupply(graphics: Graphics, supply: Supply, glow: boolean): void {
-    const scale = this.touchControls.unitsPerPixel
     const alpha = supply.spawnTimer > 0 ? 1 - supply.spawnTimer / 0.6 : 1
     const rotation = this.time * (glow ? 0.65 : -0.85)
-    graphics.lineWidth = (glow ? 13 : 2.2) * scale
-    graphics.strokeColor = this.color(COLORS.hud, Math.floor(alpha * (glow ? 68 : 255)))
-    graphics.circle(supply.x, supply.y, supply.radius + 4 * scale)
+    const radius = SUPER_WEAPON_ART.radius
+    graphics.lineWidth = glow ? SUPER_WEAPON_ART.glowWidth : SUPER_WEAPON_ART.coreWidth
+    graphics.strokeColor = this.color(glow ? SUPER_WEAPON_ART.glow : SUPER_WEAPON_ART.core, Math.floor(alpha * (glow ? SUPER_WEAPON_ART.glowAlpha : 255)))
+    graphics.circle(supply.x, supply.y, radius + SUPER_WEAPON_ART.shellPadding)
     graphics.stroke()
     for (let orbit = 0; orbit < 2; orbit += 1) {
-      const orbitRadius = supply.radius - (3 + orbit * 6) * scale
+      const orbitRadius = radius - SUPER_WEAPON_ART.orbitInset - orbit * SUPER_WEAPON_ART.orbitGap
       const orbitStart = rotation * (orbit === 0 ? -1.8 : 2.1) + orbit * Math.PI * 0.5
       graphics.arc(supply.x, supply.y, orbitRadius, orbitStart, orbitStart + Math.PI * 1.25, false)
       graphics.stroke()
     }
     for (let ray = 0; ray < 4; ray += 1) {
       const rayAngle = ray * Math.PI * 0.5 - rotation * 0.4
-      graphics.moveTo(supply.x + Math.cos(rayAngle) * (supply.radius + 8 * scale), supply.y + Math.sin(rayAngle) * (supply.radius + 8 * scale))
-      graphics.lineTo(supply.x + Math.cos(rayAngle) * (supply.radius + 16 * scale), supply.y + Math.sin(rayAngle) * (supply.radius + 16 * scale))
+      graphics.moveTo(supply.x + Math.cos(rayAngle) * (radius + SUPER_WEAPON_ART.rayStart), supply.y + Math.sin(rayAngle) * (radius + SUPER_WEAPON_ART.rayStart))
+      graphics.lineTo(supply.x + Math.cos(rayAngle) * (radius + SUPER_WEAPON_ART.rayEnd), supply.y + Math.sin(rayAngle) * (radius + SUPER_WEAPON_ART.rayEnd))
     }
     graphics.stroke()
-    graphics.strokeColor = this.color(COLORS.white, Math.floor(alpha * (glow ? 62 : 255)))
+    graphics.strokeColor = this.color(SUPER_WEAPON_ART.icon, Math.floor(alpha * (glow ? SUPER_WEAPON_ART.iconGlowAlpha : 255)))
     if (supply.effect === 'detonation') {
-      for (let spoke = 0; spoke < 6; spoke += 1) {
-        const spokeAngle = rotation + spoke / 6 * Math.PI * 2
-        graphics.moveTo(supply.x + Math.cos(spokeAngle) * 3 * scale, supply.y + Math.sin(spokeAngle) * 3 * scale)
-        graphics.lineTo(supply.x + Math.cos(spokeAngle) * 11 * scale, supply.y + Math.sin(spokeAngle) * 11 * scale)
+      for (let spoke = 0; spoke < SUPER_WEAPON_ART.detonationSpokes; spoke += 1) {
+        const spokeAngle = rotation + spoke / SUPER_WEAPON_ART.detonationSpokes * Math.PI * 2
+        graphics.moveTo(supply.x + Math.cos(spokeAngle) * SUPER_WEAPON_ART.detonationInner, supply.y + Math.sin(spokeAngle) * SUPER_WEAPON_ART.detonationInner)
+        graphics.lineTo(supply.x + Math.cos(spokeAngle) * SUPER_WEAPON_ART.detonationOuter, supply.y + Math.sin(spokeAngle) * SUPER_WEAPON_ART.detonationOuter)
       }
       graphics.stroke()
     } else if (supply.effect === 'overload') {
-      graphics.moveTo(supply.x + 2 * scale, supply.y + 11 * scale)
-      graphics.lineTo(supply.x - 5 * scale, supply.y - scale)
-      graphics.lineTo(supply.x + scale, supply.y - scale)
-      graphics.lineTo(supply.x - 2 * scale, supply.y - 11 * scale)
-      graphics.lineTo(supply.x + 7 * scale, supply.y + 3 * scale)
-      graphics.lineTo(supply.x + scale, supply.y + 3 * scale)
+      graphics.moveTo(supply.x + 2, supply.y + 11)
+      graphics.lineTo(supply.x - 5, supply.y - 1)
+      graphics.lineTo(supply.x + 1, supply.y - 1)
+      graphics.lineTo(supply.x - 2, supply.y - 11)
+      graphics.lineTo(supply.x + 7, supply.y + 3)
+      graphics.lineTo(supply.x + 1, supply.y + 3)
       graphics.stroke()
     } else {
-      this.polygon(graphics, supply.x, supply.y, 9 * scale, 3, rotation, false)
-      graphics.fillColor = this.color(COLORS.white, Math.floor(alpha * 255))
-      graphics.circle(supply.x, supply.y, 2.6 * scale)
+      this.polygon(graphics, supply.x, supply.y, SUPER_WEAPON_ART.alliesRadius, 3, rotation, false)
+      graphics.fillColor = this.color(SUPER_WEAPON_ART.icon, Math.floor(alpha * 255))
+      graphics.circle(supply.x, supply.y, SUPER_WEAPON_ART.iconRadius)
       graphics.fill()
     }
     if (glow) return
     for (let index = 0; index < supply.maxHealth; index += 1) {
       const angle = index / supply.maxHealth * Math.PI * 2 - Math.PI * 0.5
-      graphics.fillColor = this.color(COLORS.white, index < supply.health ? 255 : 50)
-      graphics.circle(supply.x + Math.cos(angle) * (supply.radius + 8 * scale), supply.y + Math.sin(angle) * (supply.radius + 8 * scale), 2 * scale)
+      graphics.fillColor = this.color(SUPER_WEAPON_ART.icon, index < supply.health ? 255 : 50)
+      graphics.circle(supply.x + Math.cos(angle) * (radius + SUPER_WEAPON_ART.durabilityOrbit), supply.y + Math.sin(angle) * (radius + SUPER_WEAPON_ART.durabilityOrbit), SUPER_WEAPON_ART.durabilityRadius)
       graphics.fill()
     }
   }
 
   private drawEnemy(graphics: Graphics, enemy: Enemy, glow: boolean, alpha: number): void {
     const colorHex = this.world.enemyColor(enemy.kind)
+    const radius = ENEMY_ART_RADIUS[enemy.kind] * (enemy.kind === 'blackhole' ? enemy.mass : 1)
     graphics.strokeColor = this.color(colorHex, Math.floor(alpha * (glow ? 70 : 245)))
     graphics.fillColor = this.color(colorHex, Math.floor(alpha * (glow ? 22 : 35)))
     graphics.lineWidth = glow ? STROKES.enemyGlow : STROKES.enemyMain
@@ -787,90 +792,90 @@ export class GeometryFighter extends Component {
       for (let arm = 0; arm < 4; arm += 1) {
         const angle = enemy.angle + arm * Math.PI * 0.5
         const sideAngle = angle - Math.PI * 0.5
-        graphics.moveTo(enemy.x + Math.cos(angle) * 2 * this.touchControls.unitsPerPixel, enemy.y + Math.sin(angle) * 2 * this.touchControls.unitsPerPixel)
+        graphics.moveTo(enemy.x + Math.cos(angle) * 2, enemy.y + Math.sin(angle) * 2)
         graphics.lineTo(
-          enemy.x + Math.cos(angle) * enemy.radius * 0.42 + Math.cos(sideAngle) * enemy.radius * 0.32,
-          enemy.y + Math.sin(angle) * enemy.radius * 0.42 + Math.sin(sideAngle) * enemy.radius * 0.32
+          enemy.x + Math.cos(angle) * radius * 0.42 + Math.cos(sideAngle) * radius * 0.32,
+          enemy.y + Math.sin(angle) * radius * 0.42 + Math.sin(sideAngle) * radius * 0.32
         )
         graphics.lineTo(
-          enemy.x + Math.cos(angle) * enemy.radius + Math.cos(sideAngle) * enemy.radius * 0.08,
-          enemy.y + Math.sin(angle) * enemy.radius + Math.sin(sideAngle) * enemy.radius * 0.08
+          enemy.x + Math.cos(angle) * radius + Math.cos(sideAngle) * radius * 0.08,
+          enemy.y + Math.sin(angle) * radius + Math.sin(sideAngle) * radius * 0.08
         )
         graphics.lineTo(
-          enemy.x + Math.cos(angle) * enemy.radius * 0.58 - Math.cos(sideAngle) * enemy.radius * 0.2,
-          enemy.y + Math.sin(angle) * enemy.radius * 0.58 - Math.sin(sideAngle) * enemy.radius * 0.2
+          enemy.x + Math.cos(angle) * radius * 0.58 - Math.cos(sideAngle) * radius * 0.2,
+          enemy.y + Math.sin(angle) * radius * 0.58 - Math.sin(sideAngle) * radius * 0.2
         )
       }
       graphics.stroke()
     } else if (enemy.kind === 'grunt') {
-      this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 4, enemy.angle + Math.PI * 0.25, true)
+      this.polygon(graphics, enemy.x, enemy.y, radius, 4, enemy.angle + Math.PI * 0.25, true)
       if (!glow) {
         const forwardX = Math.cos(enemy.angle)
         const forwardY = Math.sin(enemy.angle)
         const sideX = -forwardY
         const sideY = forwardX
-        graphics.moveTo(enemy.x - forwardX * enemy.radius * 0.7, enemy.y - forwardY * enemy.radius * 0.7)
-        graphics.lineTo(enemy.x + forwardX * enemy.radius * 0.7, enemy.y + forwardY * enemy.radius * 0.7)
-        graphics.moveTo(enemy.x - sideX * enemy.radius * 0.7, enemy.y - sideY * enemy.radius * 0.7)
-        graphics.lineTo(enemy.x + sideX * enemy.radius * 0.7, enemy.y + sideY * enemy.radius * 0.7)
+        graphics.moveTo(enemy.x - forwardX * radius * 0.7, enemy.y - forwardY * radius * 0.7)
+        graphics.lineTo(enemy.x + forwardX * radius * 0.7, enemy.y + forwardY * radius * 0.7)
+        graphics.moveTo(enemy.x - sideX * radius * 0.7, enemy.y - sideY * radius * 0.7)
+        graphics.lineTo(enemy.x + sideX * radius * 0.7, enemy.y + sideY * radius * 0.7)
         graphics.stroke()
       }
     } else if (enemy.kind === 'weaver') {
-      this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 4, enemy.angle, true)
-      if (!glow) this.polygon(graphics, enemy.x, enemy.y, enemy.radius * 0.72, 4, enemy.angle + Math.PI * 0.25, false)
+      this.polygon(graphics, enemy.x, enemy.y, radius, 4, enemy.angle, true)
+      if (!glow) this.polygon(graphics, enemy.x, enemy.y, radius * 0.72, 4, enemy.angle + Math.PI * 0.25, false)
     } else if (enemy.kind === 'spinner') {
-      this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 4, enemy.angle, true)
+      this.polygon(graphics, enemy.x, enemy.y, radius, 4, enemy.angle, true)
       if (!glow) {
         const diagonalX = Math.cos(enemy.angle + Math.PI * 0.25)
         const diagonalY = Math.sin(enemy.angle + Math.PI * 0.25)
         const crossX = -diagonalY
         const crossY = diagonalX
-        graphics.moveTo(enemy.x - diagonalX * enemy.radius, enemy.y - diagonalY * enemy.radius)
-        graphics.lineTo(enemy.x + diagonalX * enemy.radius, enemy.y + diagonalY * enemy.radius)
-        graphics.moveTo(enemy.x - crossX * enemy.radius, enemy.y - crossY * enemy.radius)
-        graphics.lineTo(enemy.x + crossX * enemy.radius, enemy.y + crossY * enemy.radius)
+        graphics.moveTo(enemy.x - diagonalX * radius, enemy.y - diagonalY * radius)
+        graphics.lineTo(enemy.x + diagonalX * radius, enemy.y + diagonalY * radius)
+        graphics.moveTo(enemy.x - crossX * radius, enemy.y - crossY * radius)
+        graphics.lineTo(enemy.x + crossX * radius, enemy.y + crossY * radius)
         graphics.stroke()
       }
     } else if (enemy.kind === 'snake') {
       graphics.strokeColor = this.color(COLORS.cyan, Math.floor(alpha * (glow ? 70 : 245)))
-      this.polygon(graphics, enemy.x, enemy.y, enemy.radius, 3, enemy.angle, true)
+      this.polygon(graphics, enemy.x, enemy.y, radius, 3, enemy.angle, true)
       graphics.strokeColor = this.color(colorHex, Math.floor(alpha * (glow ? 70 : 245)))
       for (let index = enemy.segments.length - 1; index >= 0; index -= 1) {
         const segment = enemy.segments[index]
-        const radius = (7 + (enemy.segments.length - index) * 0.35) * this.touchControls.unitsPerPixel
-        this.polygon(graphics, segment.x, segment.y, radius, 4, segment.angle + Math.PI * 0.25, index % 2 === 0)
+        const segmentRadius = 7 + (enemy.segments.length - index) * 0.35
+        this.polygon(graphics, segment.x, segment.y, segmentRadius, 4, segment.angle + Math.PI * 0.25, index % 2 === 0)
       }
     } else if (enemy.kind === 'repulsar') {
       const forwardX = Math.cos(enemy.angle)
       const forwardY = Math.sin(enemy.angle)
       const sideX = -forwardY
       const sideY = forwardX
-      graphics.moveTo(enemy.x + forwardX * enemy.radius, enemy.y + forwardY * enemy.radius)
-      graphics.lineTo(enemy.x + forwardX * enemy.radius * 0.15 + sideX * enemy.radius * 0.62, enemy.y + forwardY * enemy.radius * 0.15 + sideY * enemy.radius * 0.62)
-      graphics.lineTo(enemy.x - forwardX * enemy.radius * 0.72 + sideX * enemy.radius * 0.42, enemy.y - forwardY * enemy.radius * 0.72 + sideY * enemy.radius * 0.42)
-      graphics.lineTo(enemy.x - forwardX * enemy.radius * 0.35, enemy.y - forwardY * enemy.radius * 0.35)
-      graphics.lineTo(enemy.x - forwardX * enemy.radius * 0.72 - sideX * enemy.radius * 0.42, enemy.y - forwardY * enemy.radius * 0.72 - sideY * enemy.radius * 0.42)
-      graphics.lineTo(enemy.x + forwardX * enemy.radius * 0.15 - sideX * enemy.radius * 0.62, enemy.y + forwardY * enemy.radius * 0.15 - sideY * enemy.radius * 0.62)
+      graphics.moveTo(enemy.x + forwardX * radius, enemy.y + forwardY * radius)
+      graphics.lineTo(enemy.x + forwardX * radius * 0.15 + sideX * radius * 0.62, enemy.y + forwardY * radius * 0.15 + sideY * radius * 0.62)
+      graphics.lineTo(enemy.x - forwardX * radius * 0.72 + sideX * radius * 0.42, enemy.y - forwardY * radius * 0.72 + sideY * radius * 0.42)
+      graphics.lineTo(enemy.x - forwardX * radius * 0.35, enemy.y - forwardY * radius * 0.35)
+      graphics.lineTo(enemy.x - forwardX * radius * 0.72 - sideX * radius * 0.42, enemy.y - forwardY * radius * 0.72 - sideY * radius * 0.42)
+      graphics.lineTo(enemy.x + forwardX * radius * 0.15 - sideX * radius * 0.62, enemy.y + forwardY * radius * 0.15 - sideY * radius * 0.62)
       graphics.close()
       graphics.stroke()
       graphics.strokeColor = this.color(COLORS.cyan, Math.floor(alpha * (glow ? 70 : 245)))
-      graphics.moveTo(enemy.x - forwardX * enemy.radius * 0.72 + sideX * enemy.radius * 0.42, enemy.y - forwardY * enemy.radius * 0.72 + sideY * enemy.radius * 0.42)
-      graphics.lineTo(enemy.x - forwardX * enemy.radius, enemy.y - forwardY * enemy.radius)
-      graphics.lineTo(enemy.x - forwardX * enemy.radius * 0.72 - sideX * enemy.radius * 0.42, enemy.y - forwardY * enemy.radius * 0.72 - sideY * enemy.radius * 0.42)
+      graphics.moveTo(enemy.x - forwardX * radius * 0.72 + sideX * radius * 0.42, enemy.y - forwardY * radius * 0.72 + sideY * radius * 0.42)
+      graphics.lineTo(enemy.x - forwardX * radius, enemy.y - forwardY * radius)
+      graphics.lineTo(enemy.x - forwardX * radius * 0.72 - sideX * radius * 0.42, enemy.y - forwardY * radius * 0.72 - sideY * radius * 0.42)
       graphics.stroke()
     } else {
       const pulse = Math.sin(this.time * 4 + enemy.phase) * 3
-      graphics.circle(enemy.x, enemy.y, enemy.radius + pulse)
+      graphics.circle(enemy.x, enemy.y, radius + pulse)
       graphics.stroke()
-      graphics.circle(enemy.x, enemy.y, enemy.radius * 0.63)
+      graphics.circle(enemy.x, enemy.y, radius * 0.63)
       if (!glow) {
         graphics.fillColor = this.color(COLORS.background, 235)
         graphics.fill()
         graphics.strokeColor = this.color(COLORS.orange, 230)
-        graphics.circle(enemy.x, enemy.y, enemy.radius * 1.22 + pulse)
+        graphics.circle(enemy.x, enemy.y, radius * 1.22 + pulse)
         graphics.stroke()
         graphics.strokeColor = this.color(COLORS.violet, 220)
-        graphics.arc(enemy.x, enemy.y, enemy.radius * 0.48, -this.time * 1.7, -this.time * 1.7 + Math.PI * 1.35, false)
+        graphics.arc(enemy.x, enemy.y, radius * 0.48, -this.time * 1.7, -this.time * 1.7 + Math.PI * 1.35, false)
         graphics.stroke()
       }
     }

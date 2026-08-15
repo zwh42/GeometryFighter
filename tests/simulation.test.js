@@ -3,7 +3,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { GeometryWorld, normalizeInto } = require('../assets/scripts/simulation.ts')
-const { COLORS } = require('../assets/scripts/design-tokens.ts')
+const { ENEMY_ART_COLOR, SUPER_EVENT_ART, SUPER_WEAPON_ART } = require('../assets/scripts/design-tokens.ts')
 
 test('normalizeInto reuses caller storage for hot-loop vectors', function () {
   // Given: caller-owned storage used repeatedly by the simulation hot path.
@@ -256,23 +256,37 @@ test('continuous automatic fire remains inside the mobile projectile budget', fu
   assert.equal(world.bullets.length, 180)
 })
 
-test('enemy semantic colors follow the Cocos design tokens', function () {
-  // Given: the production world and its semantic enemy palette.
+test('enemy and super-event colors match the historical review build', function () {
+  // Given: the production world and the combat palette reviewed in be22ffa.
   const world = new GeometryWorld()
   const expected = {
-    wanderer: COLORS.violet,
-    grunt: COLORS.cyan,
-    weaver: COLORS.green,
-    spinner: COLORS.magenta,
-    snake: COLORS.yellow,
-    repulsar: COLORS.orange,
-    blackhole: COLORS.red
+    wanderer: '#9d61ff',
+    grunt: '#43f6ff',
+    weaver: '#73ff80',
+    spinner: '#ff48ed',
+    snake: '#ffe45c',
+    repulsar: '#ff9f2f',
+    blackhole: '#ff506d'
   }
 
-  // Then: each enemy role resolves to its documented Cocos color token.
+  // Then: live enemy and super-effect colors retain the reviewed palette.
+  assert.deepEqual(ENEMY_ART_COLOR, expected)
+  assert.deepEqual(SUPER_EVENT_ART, {
+    detonation: '#ff6d77', overload: '#fff36a', allies: '#43f6ff'
+  })
+  assert.equal(SUPER_WEAPON_ART.glow, '#bcff49')
   for (const [kind, color] of Object.entries(expected)) {
     assert.equal(world.enemyColor(kind), color)
   }
+
+  world.reset()
+  world.events.length = 0
+  world.activateSuperWeapon('detonation')
+  world.activateSuperWeapon('overload')
+  world.activateSuperWeapon('allies')
+  assert.deepEqual(world.events.map(function (event) { return event.color }), [
+    SUPER_EVENT_ART.detonation, SUPER_EVENT_ART.overload, SUPER_EVENT_ART.allies
+  ])
 })
 
 function idleControls() {

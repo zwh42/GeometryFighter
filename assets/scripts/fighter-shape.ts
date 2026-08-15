@@ -1,4 +1,4 @@
-import { COLORS, STROKES } from './design-tokens.ts'
+import { FIGHTER_ART, STROKES } from './design-tokens.ts'
 
 export interface FighterPoint {
   readonly forward: number
@@ -6,23 +6,32 @@ export interface FighterPoint {
 }
 
 export const FIGHTER_OUTER_PATH: readonly FighterPoint[] = [
-  { forward: 18, side: -8 },
-  { forward: 3, side: -13 },
-  { forward: -13, side: -7 },
-  { forward: -13, side: 7 },
-  { forward: 3, side: 13 },
-  { forward: 18, side: 8 }
+  { forward: 19, side: -10 },
+  { forward: 7, side: -5 },
+  { forward: 1, side: -12 },
+  { forward: -12, side: -10 },
+  { forward: -5, side: 0 },
+  { forward: -12, side: 10 },
+  { forward: 1, side: 12 },
+  { forward: 7, side: 5 },
+  { forward: 19, side: 10 }
 ]
 
 export const FIGHTER_INNER_PATH: readonly FighterPoint[] = [
-  { forward: 10, side: -3.5 },
-  { forward: -4, side: -7 },
-  { forward: -4, side: 7 },
-  { forward: 10, side: 3.5 }
+  { forward: 7, side: -5 },
+  { forward: -5, side: 0 },
+  { forward: 7, side: 5 }
 ]
 
-export const FIGHTER_HULL_COLOR = COLORS.white
-export const FIGHTER_GLOW_COLOR = COLORS.cyan
+export const FIGHTER_THRUSTER_PATH: readonly FighterPoint[] = [
+  { forward: -8, side: 5 },
+  { forward: -18, side: 0 },
+  { forward: -8, side: -5 }
+]
+
+export const FIGHTER_HULL_COLOR = FIGHTER_ART.hull
+export const FIGHTER_GLOW_COLOR = FIGHTER_ART.glow
+export const FIGHTER_THRUSTER_COLOR = FIGHTER_ART.thruster
 export const FIGHTER_OUTER_STROKE = STROKES.fighterOuter
 export const FIGHTER_INNER_STROKE = STROKES.fighterInner
 export const FIGHTER_OUTER_GLOW_STROKE = STROKES.fighterOuterGlow

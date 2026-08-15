@@ -1,4 +1,4 @@
-import { COLORS } from './design-tokens.ts'
+import { COLORS, ENEMY_ART_COLOR, SUPER_EVENT_ART, SUPER_WEAPON_ART } from './design-tokens.ts'
 import { SpatialIndex } from './spatial-index.ts'
 
 export type EnemyKind = 'wanderer' | 'grunt' | 'weaver' | 'spinner' | 'snake' | 'repulsar' | 'blackhole'
@@ -622,16 +622,16 @@ export class GeometryWorld {
         enemy.selfDestruct = delay
         delay += 0.065
       }
-      this.pushEvent('super', this.player.x, this.player.y, COLORS.red, 1, 'CHAIN DETONATION')
+      this.pushEvent('super', this.player.x, this.player.y, SUPER_EVENT_ART.detonation, 1, 'CHAIN DETONATION')
       return
     }
     if (effect === 'overload') {
       this.overloadTimer = OVERLOAD_DURATION
-      this.pushEvent('super', this.player.x, this.player.y, COLORS.yellow, 1, 'WEAPON OVERDRIVE 8S')
+      this.pushEvent('super', this.player.x, this.player.y, SUPER_EVENT_ART.overload, 1, 'WEAPON OVERDRIVE 8S')
       return
     }
     this.spawnAllies(3 + Math.floor(this.random() * 3))
-    this.pushEvent('super', this.player.x, this.player.y, COLORS.cyan, this.allies.length, 'ALLY WING DEPLOYED')
+    this.pushEvent('super', this.player.x, this.player.y, SUPER_EVENT_ART.allies, this.allies.length, 'ALLY WING DEPLOYED')
   }
 
   private spawnAllies(count: number): void {
@@ -703,7 +703,7 @@ export class GeometryWorld {
         if (dx * dx + dy * dy > hitRadius * hitRadius) continue
         bullet.life = 0
         supply.health -= 1
-        this.pushEvent('supply', supply.x, supply.y, COLORS.green, supply.health, '')
+        this.pushEvent('supply', supply.x, supply.y, SUPER_WEAPON_ART.glow, supply.health, '')
         if (supply.health <= 0) this.collectSupply(supply)
         break
       }
@@ -871,13 +871,7 @@ export class GeometryWorld {
   }
 
   enemyColor(kind: EnemyKind): string {
-    if (kind === 'wanderer') return COLORS.violet
-    if (kind === 'grunt') return COLORS.cyan
-    if (kind === 'weaver') return COLORS.green
-    if (kind === 'spinner') return COLORS.magenta
-    if (kind === 'snake') return COLORS.yellow
-    if (kind === 'repulsar') return COLORS.orange
-    return COLORS.red
+    return ENEMY_ART_COLOR[kind]
   }
 
   cleanup(): void {

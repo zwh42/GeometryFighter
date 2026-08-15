@@ -152,15 +152,72 @@ test('Cocos portrait controls keep firing through center hold and stop on releas
   assert.equal(controls.right.active, false)
 })
 
-test('Cocos fighter tokens preserve the original 31 by 26 physical hull', function () {
-  // Given: the shared Cocos fighter outline.
-  const { FIGHTER_OUTER_PATH } = require('../assets/scripts/fighter-shape.ts')
+test('Cocos fighter tokens match the review build before 2026-08-07 19:43', function () {
+  // Given: the combat-art contract from commit be22ffa.
+  const {
+    FIGHTER_GLOW_ALPHA,
+    FIGHTER_GLOW_COLOR,
+    FIGHTER_HULL_COLOR,
+    FIGHTER_INNER_GLOW_STROKE,
+    FIGHTER_INNER_PATH,
+    FIGHTER_INNER_STROKE,
+    FIGHTER_OUTER_GLOW_STROKE,
+    FIGHTER_OUTER_PATH,
+    FIGHTER_OUTER_STROKE,
+    FIGHTER_THRUSTER_COLOR,
+    FIGHTER_THRUSTER_PATH
+  } = require('../assets/scripts/fighter-shape.ts')
   const forwards = FIGHTER_OUTER_PATH.map(function (point) { return point.forward })
   const sides = FIGHTER_OUTER_PATH.map(function (point) { return point.side })
 
-  // Then: the resolution-independent token retains its established physical bounds.
+  // Then: the nine-point hull, nested chevron, and green exhaust retain their reviewed geometry.
   assert.equal(Math.max.apply(null, forwards) - Math.min.apply(null, forwards), 31)
-  assert.equal(Math.max.apply(null, sides) - Math.min.apply(null, sides), 26)
+  assert.equal(Math.max.apply(null, sides) - Math.min.apply(null, sides), 24)
+  assert.deepEqual(FIGHTER_OUTER_PATH, [
+    { forward: 19, side: -10 }, { forward: 7, side: -5 }, { forward: 1, side: -12 },
+    { forward: -12, side: -10 }, { forward: -5, side: 0 }, { forward: -12, side: 10 },
+    { forward: 1, side: 12 }, { forward: 7, side: 5 }, { forward: 19, side: 10 }
+  ])
+  assert.deepEqual(FIGHTER_INNER_PATH, [
+    { forward: 7, side: -5 }, { forward: -5, side: 0 }, { forward: 7, side: 5 }
+  ])
+  assert.deepEqual(FIGHTER_THRUSTER_PATH, [
+    { forward: -8, side: 5 }, { forward: -18, side: 0 }, { forward: -8, side: -5 }
+  ])
+  assert.deepEqual({
+    hull: FIGHTER_HULL_COLOR,
+    glow: FIGHTER_GLOW_COLOR,
+    glowAlpha: FIGHTER_GLOW_ALPHA,
+    thruster: FIGHTER_THRUSTER_COLOR,
+    strokes: [FIGHTER_OUTER_GLOW_STROKE, FIGHTER_OUTER_STROKE, FIGHTER_INNER_GLOW_STROKE, FIGHTER_INNER_STROKE]
+  }, {
+    hull: '#e8ffff', glow: '#5cebff', glowAlpha: 66, thruster: '#5dffba',
+    strokes: [13, 2.6, 8, 1.4]
+  })
+})
+
+test('Cocos projectiles, enemies, allies, and super supplies match the same review build', function () {
+  // Given: the reviewed combat primitives separated from simulation behavior.
+  const { ALLY_ART, ENEMY_ART_RADIUS, PROJECTILE_ART, SUPER_WEAPON_ART } = require('../assets/scripts/design-tokens.ts')
+
+  // Then: each visible weapon form retains its historical silhouette and palette.
+  assert.deepEqual(PROJECTILE_ART, {
+    bulletTail: 20, missileTail: 30, glowWidth: 12, coreWidth: 2.8, missileRadius: 7,
+    bulletGlow: '#ffef49', missileGlow: '#ff892a', core: '#fffdd7', missileCore: '#fffce2'
+  })
+  assert.deepEqual(ALLY_ART, {
+    glow: '#43f6ff', glowAlpha: 62, core: '#b0ffff', glowWidth: 10, coreWidth: 1.8,
+    coreRadius: 5.5, nose: 12, wingForward: 3, wingSide: 7, tailForward: -7, tailSide: 4
+  })
+  assert.deepEqual(SUPER_WEAPON_ART, {
+    glow: '#bcff49', glowAlpha: 68, core: '#dbff95', icon: '#f5ffe0', iconGlowAlpha: 62,
+    radius: 22, glowWidth: 13, coreWidth: 2.2, shellPadding: 4, orbitInset: 3, orbitGap: 6,
+    rayStart: 8, rayEnd: 16, durabilityOrbit: 8, durabilityRadius: 2,
+    detonationSpokes: 6, detonationInner: 3, detonationOuter: 11, alliesRadius: 9, iconRadius: 2.6
+  })
+  assert.deepEqual(ENEMY_ART_RADIUS, {
+    wanderer: 9, grunt: 13, weaver: 14, spinner: 15, snake: 15, repulsar: 18, blackhole: 26
+  })
 })
 
 test('background music schedules recurring tones after audio unlock', function () {

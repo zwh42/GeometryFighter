@@ -3,7 +3,7 @@
 ## 0. Reference Study
 
 - The official [Steam release page](https://store.steampowered.com/app/8400/Geometry_Wars_Retro_Evolved/) establishes the dark reactive grid, white open-claw player, short gold projectile streams, and silhouette-first enemy readability.
-- GameSpot's original-release visual analysis describes that player ship more precisely as two nested hexagons with the forward side removed. That observable construction, also visible in its gameplay capture, is the fighter-shape contract used below rather than a generic arrowhead.
+- The shipped review snapshot immediately preceding 2026-08-07 19:43 (`be22ffa`) is the binding combat-art reference: its nine-point fighter hull, inner chevron, green exhaust, projectile palette, ally silhouette, and three super-supply marks must survive later performance work unchanged.
 - The official [Xbox store listing](https://www.xbox.com/en-us/games/store/geometry-wars-evolved/bp5g8k2m71pm) and its gameplay art confirm the core color families: cyan diamonds, green framed cubes, magenta crossed boxes, violet pinwheels, gold segmented snakes, and red/orange black-hole rings.
 - The official [PewPew App Store listing](https://apps.apple.com/us/app/pewpew/id314964252) identifies its defining traits as multidirectional shooting, large enemy counts, five rule-driven modes, and sustained high frame rate. Its screenshots establish a cleaner pure-black field, thin luminous vector outlines, sparse magenta guides, grouped danger, and minimal telemetry.
 - The official [PewPew Live site](https://pewpew.live/) reinforces fast, diversified play and retro-futurist vector graphics. Geometry Fighter borrows those high-level principles through original silhouettes, Assault pacing, and telegraphed edge formations; it does not reproduce PewPew assets, level layouts, or interface composition.
@@ -35,7 +35,7 @@ Geometry Fighter is a dark neon arcade instrument: a near-black arena, electrica
 | Missile / charge | `orange` | `#ff9f2f` | Homing missiles and high-speed enemy tells |
 | Danger | `red` | `#ff554d` | Black holes, damage, collapse |
 
-Colors are centralized in `assets/scripts/design-tokens.ts`. Alpha variants may be derived for fills and glow, but semantic hues must come from this table.
+Colors are centralized in `assets/scripts/design-tokens.ts`. The reviewed combat silhouettes retain their exact legacy accents in `FIGHTER_ART`, `PROJECTILE_ART`, `ALLY_ART`, `SUPER_WEAPON_ART`, `ENEMY_ART_COLOR`, and `SUPER_EVENT_ART`; alpha variants may be derived for glow.
 
 Typography, touch geometry, and fighter primitives follow the same rule: Cocos consumes the typed token modules under `assets/scripts/`.
 
@@ -76,15 +76,16 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 ### Fighter
 
 - **Variants**: player (white/cyan), ally (smaller cyan).
-- **Player structure**: two concentric white open hexagons point toward the firing direction. The outer hull owns six vertices from the upper muzzle prong around the closed rear to the lower muzzle prong; the inset hull owns four vertices and repeats the same open-front claw. Neither hull closes, fills, gains a cockpit, or adds aircraft-like wings.
-- **Physical scale**: the player hull is approximately 31 × 26 physical pixels with 2.2–2.8 px primary strokes. The cyan under-glow stays at or below 7 px with low alpha so the white claw remains dominant. Cocos converts those values through the current view scale so its 720-unit design canvas does not shrink the fighter on narrow phones.
+- **Player structure**: the reviewed open nine-point hull runs from twin nose prongs through swept shoulders and a center-tail notch. A three-point inner chevron repeats the nose direction, while a separate green three-point exhaust mark sits behind the hull. Paths remain open and unfilled.
+- **Reviewed scale**: the player hull is approximately 31 × 24 design-space units with a 2.6-unit primary outline, 1.4-unit inner line, and the reviewed 13/8-unit low-alpha glow passes. These drawing dimensions stay independent from the current view-scaled collision geometry.
 - **States**: active, invulnerable flicker, destroyed, ally expiring.
-- **Motion**: player velocity trail carries thrust feedback without adding a permanent tail flame to the original-style hull; allies orbit smoothly and aim independently.
-- **Accessibility**: the player's paired open fronts point in the firing direction and remain distinct from every closed enemy polygon; allies retain their smaller circular-chevron silhouette so they cannot be mistaken for the player.
+- **Motion**: the green exhaust mark and player velocity trail carry thrust feedback; allies orbit smoothly and aim independently.
+- **Accessibility**: the player's twin nose prongs and tail notch point in the firing direction and remain distinct from every closed enemy polygon; allies retain their smaller circular-chevron silhouette so they cannot be mistaken for the player.
 
 ### Projectile
 
 - **Variants**: standard yellow bolt, orange-white homing missile, cyan ally bolt.
+- **Reviewed model**: standard and missile tails remain 20/30 px with 12 px glow and 2.8 px core; missiles retain the filled seven-pixel triangular head. Their exact reviewed colors are `#ffef49`, `#ff892a`, `#fffdd7`, and `#fffce2`.
 - **States**: flight, curved pursuit, impact, boundary impact.
 - **Motion**: missiles use bounded angular steering so course changes are visible and interruptible rather than snapping to a target.
 - **Accessibility**: color, width, tail length, and missile silhouette all distinguish variants.
@@ -92,16 +93,17 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 ### Super Supply
 
 - **Structure**: large circular orbital beacon, counter-rotating broken rings, effect-specific white core mark, four cardinal rays, and eight durability pips. Enemy silhouettes do not use this complete grammar.
+- **Reviewed model**: the beacon retains the `#bcff49` glow, `#dbff95` shell, and `#f5ffe0` core from `be22ffa`; detonation uses six spokes, overload uses the stepped lightning mark, and ally deployment uses the triangular core with a center dot.
 - **States**: spawn scale-in, 8–1 hits remaining, collected burst, expired.
 - **Motion**: opposing broken-ring rotations communicate a live pickup; each hit extinguishes one pip.
 - **Accessibility**: circular orbit, white core, cardinal rays, larger scale, and pip count distinguish it from hostile polygons without relying on lime color.
 
 ### Enemy Family
 
-- **Variants**: violet pinwheel wanderer, cyan diamond grunt, green framed-cube weaver, magenta crossed-box spinner, gold segmented snake with cyan head, orange/cyan repulsar, red/orange/violet black hole, dart, orbiter, crusher, splitter, and spawned shard.
-- **Structure**: every class owns a distinct live vector silhouette derived from the original Geometry Wars family. New additions reuse that grammar through a chevron rocket (`dart`), gyroscope diamond (`orbiter`), armored double diamond (`crusher`), divided magenta octahedron (`splitter`), and small triangular fragment (`shard`).
-- **States**: spawn, normal pursuit, class-specific maneuver, damage, destruction, and splitter fragmentation.
-- **Motion**: darts alternate between tracking and short charge windows; orbiters hold a readable ring around the player; crushers pursue with high inertia; splitters drift inward and release three independently steered shards on destruction.
+- **Variants**: violet pinwheel wanderer, cyan diamond grunt, green framed-cube weaver, magenta crossed-box spinner, gold segmented snake with cyan head, orange/cyan repulsar, and red/orange/violet black hole.
+- **Structure**: every live class owns a distinct vector silhouette from the reviewed combat grammar: pinwheel arms, crossed diamonds, framed cube, segmented chain, directional repulsor shell, or concentric gravity rings.
+- **States**: spawn, normal pursuit, class-specific maneuver, damage, and destruction.
+- **Motion**: wanderers drift, grunts pursue directly, weavers weave, spinners orbit while rotating, snakes follow a segmented leader, repulsars maintain distance, and black holes distort nearby movement.
 - **Accessibility**: class identity never depends on hue alone; silhouette, rotation, scale, durability, and motion pattern reinforce one another.
 
 ### Assault Director
@@ -140,9 +142,6 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 | Missile mode | 5 s | Temporary weapon transformation |
 | Overdrive | 8 s | Temporary nine-lane barrage |
 | Ally wing | 12 s | Temporary autonomous support |
-| Dart charge | 450 ms within a 1.35 s cycle | Telegraphs a high-speed triangular attack |
-| Orbiter correction | continuous, distance-banded | Holds a legible ring rather than colliding as a normal chaser |
-| Splitter fragmentation | immediate on destruction | Converts one hexagonal threat into three visible shards |
 
 All motion represents gameplay state. Homing is reserved for the temporary missile power-up and allied ships. Default bullets may receive one launch-angle correction toward an eligible target inside the visible sector, then preserve that velocity for their entire flight. Motion updates are frame-delta based and remain retargetable every frame.
 
