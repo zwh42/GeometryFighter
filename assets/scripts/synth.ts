@@ -10,6 +10,9 @@ const MUSIC_TRACKS = [
 const MUSIC_ROTATION_SECONDS = 60
 const MUSIC_VOLUME = 0.24
 
+export type AudioContextFactory = () => AudioContext | null
+export type RandomSource = () => number
+
 interface InnerAudioContext {
   loop: boolean
   autoplay: boolean
@@ -17,19 +20,6 @@ interface InnerAudioContext {
   src: string
   play?(): void
 }
-
-interface MiniGamePlatform {
-  createWebAudioContext?(): AudioContext
-  createInnerAudioContext?(): InnerAudioContext
-  loadSubpackage?(options: { readonly name: string; readonly success: () => void }): void
-}
-
-declare global {
-  var wx: MiniGamePlatform | undefined
-}
-
-export type AudioContextFactory = () => AudioContext | null
-export type RandomSource = () => number
 
 function createAudioContext(): AudioContext | null {
   const platform = globalThis.wx

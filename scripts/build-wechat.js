@@ -1,62 +1,158 @@
 'use strict'
 
-const { spawnSync } = require('node:child_process')
-const { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } = require('node:fs')
+// Standalone release builder. Compiles the engine-free TypeScript sources to
+// CommonJS with tsc, fuses them into one self-contained game.js bundle, and
+// emits the WeChat mini-game package plus a browser preview package. The
+// former Cocos Creator build path is retired; nothing here needs the editor.
+
+const { execFileSync } = require('node:child_process')
+const { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require('node:fs')
 const { join, resolve } = require('node:path')
 
 const project = resolve(__dirname, '..')
-const musicFiles = ['game.js', 'bgm.mp3', 'grid-pressure.mp3', 'grid-runner-pulse.mp3', 'gravity-coin.mp3', 'gravity-coin-alt.mp3']
-const outputName = process.argv[2] || 'wechat-v1-6-6'
+const outputName = process.argv[2] || 'wechat-1-7-0'
 if (!/^[a-zA-Z0-9._-]+$/.test(outputName)) throw new Error(`Invalid output name: ${outputName}`)
-
-const creator = process.env.COCOS_CREATOR_PATH || '/Applications/Cocos/Creator/3.8.8/CocosCreator.app/Contents/MacOS/CocosCreator'
+const musicFiles = ['game.js', 'bgm.mp3', 'grid-pressure.mp3', 'grid-runner-pulse.mp3', 'gravity-coin.mp3', 'gravity-coin-alt.mp3']
+const sourcesDirectory = join(project, 'assets', 'scripts')
+const stageDirectory = join(project, 'temp', 'standalone-stage')
+const distDirectory = join(project, 'temp', 'standalone-dist')
 const buildRoot = join(project, 'build')
-const output = join(buildRoot, outputName)
-const startedAt = Date.now()
-const result = spawnSync(creator, [
-  '--no-sandbox',
-  '--disable-gpu',
-  '--project', project,
-  '--build', `platform=wechatgame;buildPath=${buildRoot};outputName=${outputName}`,
-  '--log-level', '4'
-], { stdio: 'inherit' })
+const wechatOutput = join(buildRoot, outputName)
+const webOutput = join(buildRoot, 'web-preview')
 
-const logDirectory = join(project, 'temp', 'builder', 'log')
-const latestLog = readdirSync(logDirectory)
-  .filter((name) => name.startsWith('wechatgame') && name.endsWith('.log'))
-  .map((name) => ({ name, modified: statSync(join(logDirectory, name)).mtimeMs }))
-  .filter((entry) => entry.modified >= startedAt - 2000)
-  .sort((left, right) => right.modified - left.modified)[0]
-
-const log = latestLog ? readFileSync(join(logDirectory, latestLog.name), 'utf8') : ''
-const finished = log.includes(`build Task (${outputName}) Finished`)
-const requiredFiles = ['game.js', 'game.json', 'application.js', 'assets/main/index.js', 'project.config.json']
-const missing = requiredFiles.filter((name) => !existsSync(join(output, name)))
-
-if (!finished || missing.length > 0) {
-  const reason = missing.length > 0 ? `missing ${missing.join(', ')}` : 'completion marker absent'
-  throw new Error(`Cocos build failed (${reason}, process status ${String(result.status)})`)
+function stageSources() {
+  rmSync(stageDirectory, { recursive: true, force: true })
+  rmSync(distDirectory, { recursive: true, force: true })
+  mkdirSync(stageDirectory, { recursive: true })
+  for (const name of readdirSync(sourcesDirectory)) {
+    if (!name.endsWith('.ts')) continue
+    const source = readFileSync(join(sourcesDirectory, name), 'utf8').replace(/from '([^']+)\.ts'/g, "from '$1'")
+    writeFileSync(join(stageDirectory, name), source)
+  }
 }
 
-const projectConfig = JSON.parse(readFileSync(join(project, 'project.config.json'), 'utf8'))
-if (typeof projectConfig.appid !== 'string' || !projectConfig.appid.startsWith('wx')) {
-  throw new Error('Missing release AppID in project.config.json')
+function compileTypeScript() {
+  const config = {
+    compilerOptions: {
+      target: 'ES2018',
+      module: 'CommonJS',
+      moduleResolution: 'node',
+      lib: ['ES2020', 'DOM'],
+      strict: true,
+      noImplicitOverride: true,
+      outDir: distDirectory,
+      rootDir: stageDirectory,
+      sourceMap: false,
+      declaration: false,
+      skipLibCheck: true,
+      forceConsistentCasingInFileNames: true
+    },
+    include: [join(stageDirectory, '*.ts')]
+  }
+  const configPath = join(project, 'temp', 'tsconfig.standalone.json')
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
+  execFileSync(process.execPath, [join(project, 'node_modules', 'typescript', 'bin', 'tsc'), '--project', configPath], { stdio: 'inherit' })
 }
-const outputConfigPath = join(output, 'project.config.json')
-const outputConfig = JSON.parse(readFileSync(outputConfigPath, 'utf8'))
-outputConfig.appid = projectConfig.appid
-writeFileSync(outputConfigPath, `${JSON.stringify(outputConfig)}\n`)
 
-const gameConfigPath = join(output, 'game.json')
-const gameConfig = JSON.parse(readFileSync(gameConfigPath, 'utf8'))
-gameConfig.subpackages = [{ name: 'music', root: 'music' }]
-writeFileSync(gameConfigPath, `${JSON.stringify(gameConfig)}\n`)
-
-const musicDirectory = join(output, 'music')
-mkdirSync(musicDirectory, { recursive: true })
-for (const musicFile of musicFiles) copyFileSync(join(project, 'music', musicFile), join(musicDirectory, musicFile))
-
-if (result.status !== 0) {
-  process.stderr.write(`Cocos finished successfully; ignored macOS helper teardown status ${String(result.status)}.\n`)
+function moduleOrder(dist) {
+  const emitted = readdirSync(dist).filter((name) => name.endsWith('.js')).map((name) => name.replace(/\.js$/, ''))
+  const requiresOf = {}
+  for (const name of emitted) {
+    const code = readFileSync(join(dist, `${name}.js`), 'utf8')
+    const specifiers = []
+    for (const match of code.matchAll(/require\("([^"]+)"\)/g)) {
+      if (match[1].startsWith('./')) specifiers.push(match[1].replace(/^\.\//, ''))
+    }
+    requiresOf[name] = specifiers
+  }
+  const order = []
+  const visited = new Set()
+  const visit = (name) => {
+    if (visited.has(name)) return
+    visited.add(name)
+    for (const dependency of requiresOf[name] || []) visit(dependency)
+    order.push(name)
+  }
+  visit('main')
+  for (const name of emitted) visit(name)
+  return order
 }
-process.stdout.write(`WeChat release ready: ${output}\n`)
+
+function bundle() {
+  const order = moduleOrder(distDirectory)
+  const parts = [
+    '(function () {',
+    "'use strict';",
+    'var __modules = {};',
+    'var __cache = {};',
+    'function __def(name, factory) { __modules[name] = factory }',
+    'function __require(name) {',
+    '  var cached = __cache[name];',
+    '  if (cached) return cached.exports;',
+    '  var factory = __modules[name];',
+    "  if (!factory) throw new Error('missing module: ' + name);",
+    '  var module = { exports: {} };',
+    '  __cache[name] = module;',
+    '  factory(module, module.exports);',
+    '  return module.exports;',
+    '}'
+  ]
+  for (const name of order) {
+    const code = readFileSync(join(distDirectory, `${name}.js`), 'utf8')
+      .replace(/^"use strict";\r?\n/, '')
+      .replace(/require\("\.\/([^"]+)"\)/g, "__require('$1')")
+    parts.push(`__def('${name}', function (module, exports) {\n${code}\n});`)
+  }
+  parts.push("__require('main');")
+  parts.push('})();')
+  return parts.join('\n')
+}
+
+function writeWeChatPackage(bundleSource) {
+  rmSync(wechatOutput, { recursive: true, force: true })
+  mkdirSync(wechatOutput, { recursive: true })
+  writeFileSync(join(wechatOutput, 'game.js'), `${bundleSource}\n`)
+  const gameConfig = { deviceOrientation: 'portrait', networkTimeout: { request: 5000, connectSocket: 5000, uploadFile: 5000, downloadFile: 500000 }, subpackages: [{ name: 'music', root: 'music' }] }
+  writeFileSync(join(wechatOutput, 'game.json'), `${JSON.stringify(gameConfig)}\n`)
+  const projectConfig = JSON.parse(readFileSync(join(project, 'project.config.json'), 'utf8'))
+  if (typeof projectConfig.appid !== 'string' || !projectConfig.appid.startsWith('wx')) {
+    throw new Error('Missing release AppID in project.config.json')
+  }
+  writeFileSync(join(wechatOutput, 'project.config.json'), `${JSON.stringify(projectConfig)}\n`)
+  const musicDirectory = join(wechatOutput, 'music')
+  mkdirSync(musicDirectory, { recursive: true })
+  for (const musicFile of musicFiles) copyFileSync(join(project, 'music', musicFile), join(musicDirectory, musicFile))
+}
+
+function writeWebPackage(bundleSource) {
+  rmSync(webOutput, { recursive: true, force: true })
+  mkdirSync(webOutput, { recursive: true })
+  writeFileSync(join(webOutput, 'game.js'), `${bundleSource}\n`)
+  writeFileSync(join(webOutput, 'index.html'), `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Geometry Fighter</title>
+<style>
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000006; overflow: hidden; }
+canvas { position: fixed; inset: 0; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script src="game.js"></script>
+</body>
+</html>
+`)
+}
+
+stageSources()
+compileTypeScript()
+const bundleSource = bundle()
+writeWeChatPackage(bundleSource)
+writeWebPackage(bundleSource)
+for (const required of [join(wechatOutput, 'game.js'), join(wechatOutput, 'game.json'), join(wechatOutput, 'project.config.json'), join(wechatOutput, 'music', 'bgm.mp3'), join(webOutput, 'index.html'), join(webOutput, 'game.js')]) {
+  if (!existsSync(required) || !statSync(required).isFile()) throw new Error(`build product missing: ${required}`)
+}
+process.stdout.write(`Standalone release ready: ${wechatOutput}\nBrowser preview ready: ${webOutput}\n`)

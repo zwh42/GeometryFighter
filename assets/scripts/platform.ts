@@ -1,0 +1,353 @@
+// One platform seam for the standalone runtime: WeChat mini-game on one side,
+// browsers on the other. The game shell sees logical-pixel touches, window
+// metrics with a y-down safe area, cached storage, and a rasterizing text
+// factory; it never touches wx or DOM APIs directly.
+
+import type { LabelConfig, RasterFactory } from './text-surface.ts'
+import { TextLabel, TEXT_RASTER_SCALE } from './text-surface.ts'
+import { COLORS } from './design-tokens.ts'
+
+export interface TouchPoint {
+  readonly id: number
+  readonly x: number
+  readonly y: number
+}
+
+export interface KeyEvent {
+  readonly key: string
+}
+
+export interface WindowMetrics {
+  readonly width: number
+  readonly height: number
+  readonly safeLeft: number
+  readonly safeRight: number
+  readonly safeTop: number
+  readonly safeBottom: number
+  readonly menuBottom: number
+}
+
+export interface TouchHandlers {
+  readonly start: (point: TouchPoint) => void
+  readonly move: (point: TouchPoint) => void
+  readonly end: (id: number) => void
+}
+
+export interface KeyHandlers {
+  readonly down: (event: KeyEvent) => void
+  readonly up: (event: KeyEvent) => void
+}
+
+export interface PlatformHost {
+  readonly kind: 'wechat' | 'web'
+  readonly glCanvas: unknown
+  readonly createRaster: RasterFactory
+  rasterizeLabel(label: TextLabel): void
+  metrics(): WindowMetrics
+  onResize(listener: () => void): void
+  onTouch(handlers: TouchHandlers): void
+  onKey(handlers: KeyHandlers): void
+  onVisibility(listener: (visible: boolean) => void): void
+  storageGet(key: string): string
+  storageSet(key: string, value: string): void
+  requestFrame(callback: () => void): void
+  now(): number
+}
+
+// The subset of CanvasRenderingContext2D the label rasterizer needs; both the
+// WeChat offscreen canvas and a browser canvas provide it.
+export interface RasterContext2D {
+  font: string
+  textBaseline: string
+  textAlign: string
+  lineWidth: number
+  strokeStyle: string
+  fillStyle: string
+  clearRect(x: number, y: number, width: number, height: number): void
+  strokeText(text: string, x: number, y: number): void
+  fillText(text: string, x: number, y: number): void
+}
+
+const MONO_STACK = "ui-monospace,'SF Mono',Menlo,Consolas,'Courier New',monospace"
+const SANS_STACK = "system-ui,-apple-system,'PingFang SC','Noto Sans SC',sans-serif"
+
+function fontFor(config: LabelConfig): string {
+  return `700 ${Math.round(config.fontSize * TEXT_RASTER_SCALE)}px ${config.monospace ? MONO_STACK : SANS_STACK}`
+}
+
+export function rasterizeLabelWith(context: RasterContext2D, label: TextLabel, pixelWidth: number, pixelHeight: number): void {
+  const config = label.config
+  context.clearRect(0, 0, pixelWidth, pixelHeight)
+  context.font = fontFor(config)
+  context.textBaseline = 'middle'
+  context.textAlign = config.align
+  const lines = label.string.split('\n')
+  const originX = config.align === 'left' ? 0 : config.align === 'right' ? pixelWidth : pixelWidth * 0.5
+  for (let index = 0; index < lines.length; index += 1) {
+    const y = (index + 0.5) * config.lineHeight * TEXT_RASTER_SCALE
+    if (config.outlineWidth > 0) {
+      context.lineWidth = config.outlineWidth * 2 * TEXT_RASTER_SCALE
+      context.strokeStyle = COLORS.background
+      context.strokeText(lines[index], originX, y)
+    }
+    context.fillStyle = label.colorHex
+    context.fillText(lines[index], originX, y)
+  }
+  label.dirty = false
+}
+
+interface MiniGameSafeArea {
+  readonly left?: number
+  readonly right?: number
+  readonly top?: number
+  readonly bottom?: number
+}
+
+interface MiniGameTouch {
+  readonly identifier: number
+  readonly clientX: number
+  readonly clientY: number
+}
+
+interface MiniGameTouchEvent {
+  readonly changedTouches: readonly MiniGameTouch[]
+}
+
+interface MiniGameKeyboardEvent {
+  readonly type: 'keydown' | 'keyup'
+  readonly key: string
+}
+
+interface MiniGameWindowInfo {
+  readonly windowWidth?: number
+  readonly windowHeight?: number
+  readonly safeArea?: MiniGameSafeArea
+}
+
+interface MiniGameApi {
+  createCanvas(): unknown
+  createOffscreenCanvas(options: { readonly type: '2d'; readonly width: number; readonly height: number }): unknown
+  createWebAudioContext?(): AudioContext
+  createInnerAudioContext?(): { loop: boolean; autoplay: boolean; volume: number; src: string; play?(): void }
+  loadSubpackage?(options: { readonly name: string; readonly success: () => void }): void
+  getWindowInfo?(): MiniGameWindowInfo
+  getSystemInfoSync?(): MiniGameWindowInfo
+  getMenuButtonBoundingClientRect?(): { readonly bottom: number }
+  onWindowResize(listener: () => void): void
+  onTouchStart(listener: (event: MiniGameTouchEvent) => void): void
+  onTouchMove(listener: (event: MiniGameTouchEvent) => void): void
+  onTouchEnd(listener: (event: MiniGameTouchEvent) => void): void
+  onTouchCancel(listener: (event: MiniGameTouchEvent) => void): void
+  onKeyboardEvent?(listener: (event: MiniGameKeyboardEvent) => void): void
+  onHide(listener: () => void): void
+  onShow(listener: () => void): void
+  getStorageSync(key: string): string
+  setStorageSync(key: string, value: string): void
+  setPreferredFramesPerSecond?(fps: number): void
+}
+
+export type { MiniGameApi }
+
+declare global {
+  // eslint-disable-next-line no-var
+  var wx: MiniGameApi | undefined
+}
+
+function asRasterContext(handle: unknown): RasterContext2D {
+  return handle as RasterContext2D
+}
+
+export class WeChatPlatform implements PlatformHost {
+  readonly kind = 'wechat' as const
+  readonly glCanvas: unknown
+  readonly createRaster: RasterFactory
+  private readonly api: MiniGameApi
+
+  constructor() {
+    const api = globalThis.wx
+    if (!api) throw new Error('WeChatPlatform requires the wx mini-game runtime')
+    this.api = api
+    this.glCanvas = api.createCanvas()
+    this.createRaster = (width, height) => api.createOffscreenCanvas({ type: '2d', width, height })
+    api.setPreferredFramesPerSecond?.(60)
+  }
+
+  rasterizeLabel(label: TextLabel): void {
+    const canvas = label.raster as { getContext(type: '2d'): unknown }
+    rasterizeLabelWith(asRasterContext(canvas.getContext('2d')), label, label.pixelWidth, label.pixelHeight)
+  }
+
+  metrics(): WindowMetrics {
+    const info = this.api.getWindowInfo?.() ?? this.api.getSystemInfoSync?.() ?? {}
+    const width = info.windowWidth ?? 390
+    const height = info.windowHeight ?? 844
+    const area = info.safeArea ?? {}
+    return {
+      width,
+      height,
+      safeLeft: area.left ?? 0,
+      safeRight: width - (area.right ?? width),
+      safeTop: area.top ?? 0,
+      safeBottom: height - (area.bottom ?? height),
+      menuBottom: this.api.getMenuButtonBoundingClientRect?.().bottom ?? 0
+    }
+  }
+
+  onResize(listener: () => void): void {
+    this.api.onWindowResize(listener)
+  }
+
+  onTouch(handlers: TouchHandlers): void {
+    const toPoint = (touch: MiniGameTouch): TouchPoint => ({ id: touch.identifier, x: touch.clientX, y: touch.clientY })
+    this.api.onTouchStart((event) => { for (const touch of event.changedTouches) handlers.start(toPoint(touch)) })
+    this.api.onTouchMove((event) => { for (const touch of event.changedTouches) handlers.move(toPoint(touch)) })
+    const finish = (event: MiniGameTouchEvent) => { for (const touch of event.changedTouches) handlers.end(touch.identifier) }
+    this.api.onTouchEnd(finish)
+    this.api.onTouchCancel(finish)
+  }
+
+  onKey(handlers: KeyHandlers): void {
+    this.api.onKeyboardEvent?.((event) => {
+      if (event.type === 'keydown') handlers.down({ key: event.key })
+      else handlers.up({ key: event.key })
+    })
+  }
+
+  onVisibility(listener: (visible: boolean) => void): void {
+    this.api.onHide(() => listener(false))
+    this.api.onShow(() => listener(true))
+  }
+
+  storageGet(key: string): string {
+    return this.api.getStorageSync(key) || ''
+  }
+
+  storageSet(key: string, value: string): void {
+    this.api.setStorageSync(key, value)
+  }
+
+  requestFrame(callback: () => void): void {
+    requestAnimationFrame(callback)
+  }
+
+  now(): number {
+    return Date.now()
+  }
+}
+
+export interface DomCanvas {
+  getContext(type: 'webgl' | '2d', options?: unknown): unknown
+  width: number
+  height: number
+  addEventListener(type: string, listener: (event: unknown) => void): void
+  style: Record<string, string>
+}
+
+interface PointerEventLike {
+  readonly pointerId: number
+  readonly clientX: number
+  readonly clientY: number
+  readonly key?: string
+  preventDefault?(): void
+}
+
+export interface WebWindow {
+  readonly innerWidth: number
+  readonly innerHeight: number
+  readonly localStorage: { getItem(key: string): string | null; setItem(key: string, value: string): void }
+  addEventListener(type: string, listener: (event: unknown) => void): void
+}
+
+export interface WebDocument {
+  readonly visibilityState: string
+  createElement(tag: 'canvas'): DomCanvas
+  getElementById(id: string): DomCanvas | null
+  addEventListener(type: string, listener: () => void): void
+}
+
+export class WebPlatform implements PlatformHost {
+  readonly kind = 'web' as const
+  readonly glCanvas: unknown
+  readonly createRaster: RasterFactory
+  private readonly win: WebWindow
+  private readonly doc: WebDocument
+  private readonly canvas: DomCanvas
+
+  constructor(win: WebWindow, doc: WebDocument, canvas: DomCanvas) {
+    this.win = win
+    this.doc = doc
+    this.canvas = canvas
+    this.glCanvas = canvas
+    this.createRaster = (width, height) => {
+      const raster = doc.createElement('canvas')
+      raster.width = width
+      raster.height = height
+      return raster
+    }
+    canvas.style.width = '100vw'
+    canvas.style.height = '100vh'
+    canvas.style.touchAction = 'none'
+    canvas.style.display = 'block'
+  }
+
+  rasterizeLabel(label: TextLabel): void {
+    rasterizeLabelWith(asRasterContext((label.raster as DomCanvas).getContext('2d')), label, label.pixelWidth, label.pixelHeight)
+  }
+
+  metrics(): WindowMetrics {
+    return {
+      width: this.win.innerWidth,
+      height: this.win.innerHeight,
+      safeLeft: 0,
+      safeRight: 0,
+      safeTop: 0,
+      safeBottom: 0,
+      menuBottom: 0
+    }
+  }
+
+  onResize(listener: () => void): void {
+    this.win.addEventListener('resize', listener)
+  }
+
+  onTouch(handlers: TouchHandlers): void {
+    const canvas = this.canvas
+    canvas.addEventListener('pointerdown', (raw) => {
+      const event = raw as PointerEventLike
+      event.preventDefault?.()
+      handlers.start({ id: event.pointerId, x: event.clientX, y: event.clientY })
+    })
+    canvas.addEventListener('pointermove', (raw) => {
+      const event = raw as PointerEventLike
+      handlers.move({ id: event.pointerId, x: event.clientX, y: event.clientY })
+    })
+    const finish = (raw: unknown) => handlers.end((raw as PointerEventLike).pointerId)
+    canvas.addEventListener('pointerup', finish)
+    canvas.addEventListener('pointercancel', finish)
+  }
+
+  onKey(handlers: KeyHandlers): void {
+    this.win.addEventListener('keydown', (raw) => handlers.down({ key: (raw as PointerEventLike).key ?? '' }))
+    this.win.addEventListener('keyup', (raw) => handlers.up({ key: (raw as PointerEventLike).key ?? '' }))
+  }
+
+  onVisibility(listener: (visible: boolean) => void): void {
+    this.doc.addEventListener('visibilitychange', () => listener(this.doc.visibilityState === 'visible'))
+  }
+
+  storageGet(key: string): string {
+    return this.win.localStorage.getItem(key) || ''
+  }
+
+  storageSet(key: string, value: string): void {
+    this.win.localStorage.setItem(key, value)
+  }
+
+  requestFrame(callback: () => void): void {
+    requestAnimationFrame(callback)
+  }
+
+  now(): number {
+    return Date.now()
+  }
+}

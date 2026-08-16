@@ -95,12 +95,8 @@ export const FIGHTER_ART = {
 
 export const PROJECTILE_ART = {
   bulletTail: 20,
-  missileTail: 30,
   glowWidth: 12,
   coreWidth: 2.8,
-  missileCoreRadius: 3.6,
-  missileRingRadius: 5.8,
-  missileRingWidth: 1.6,
   overloadTail: 16,
   overloadGlowWidth: 18,
   overloadRailWidth: 2.2,
@@ -113,8 +109,47 @@ export const PROJECTILE_ART = {
   overloadGlow: COLORS.cyan,
   overloadCore: COLORS.white,
   overloadAccent: COLORS.magenta,
-  core: '#fffdd7',
-  missileCore: '#fffce2'
+  core: '#fffdd7'
+} as const
+
+// The homing missile reads as a real missile: slender fuselage with a rounded
+// nose cone, swept tail fins, a flickering exhaust flame, and a fading smoke
+// contrail — never as an arrow shaft with a head.
+export const MISSILE_ART = {
+  hull: '#fff3df',
+  glow: PROJECTILE_ART.missileGlow,
+  flame: '#ff7a1f',
+  flameCore: '#ffe9a8',
+  hullStroke: 1.8,
+  glowStroke: 11,
+  noseForward: 11,
+  noseShoulderForward: 8.4,
+  noseShoulderSide: 1.5,
+  bodyForward: 5.2,
+  bodySide: 2.4,
+  tailForward: -8.2,
+  tailSide: 2.4,
+  capForward: -9.4,
+  capSide: 1.3,
+  finRootForward: -4.6,
+  finRootSide: 2.3,
+  finTipForward: -10.2,
+  finTipSide: 5.4,
+  finTrailForward: -8.4,
+  finTrailSide: 2.1,
+  nozzleForward: -8.6,
+  nozzleSide: 1.9,
+  flameBaseForward: -9.8,
+  flameBaseSide: 1.8,
+  flameCoreSide: 0.9,
+  flameLength: 7.5,
+  flameFlicker: 3.2,
+  flameCoreLength: 4.4,
+  contrailStart: 14,
+  contrailSpan: 22,
+  contrailSegments: 4,
+  contrailWidth: 2.4,
+  contrailSway: 1.6
 } as const
 
 export const ALLY_ART = {

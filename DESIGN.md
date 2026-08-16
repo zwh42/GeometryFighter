@@ -3,7 +3,7 @@
 ## 0. Reference Study
 
 - The official [Steam release page](https://store.steampowered.com/app/8400/Geometry_Wars_Retro_Evolved/) establishes the dark reactive grid, white open-claw player, short gold projectile streams, and silhouette-first enemy readability.
-- The shipped review snapshot immediately preceding 2026-08-07 19:43 (`be22ffa`) was the binding combat-art reference until the 1.6.6 review feedback (2026-08-16) superseded two primitives: the player hull now traces the original claw silhouette, and the homing missile drops its triangular head for the original round energy-orb language. All other reviewed accents survive.
+- The shipped review snapshot immediately preceding 2026-08-07 19:43 (`be22ffa`) was the binding combat-art reference until the 1.6.6 review feedback (2026-08-16) superseded two primitives: the player hull now traces the original claw silhouette, and the homing missile drops its triangular head for the original round energy-orb language. The same day's 1.7.0 feedback superseded the orb once more: the homing missile now draws a real missile — fuselage, nose cone, swept fins, exhaust flame, and smoke contrail. All other reviewed accents survive.
 - The official [Xbox store listing](https://www.xbox.com/en-us/games/store/geometry-wars-evolved/bp5g8k2m71pm) and its gameplay art confirm the core color families: cyan diamonds, green framed cubes, magenta crossed boxes, violet pinwheels, gold segmented snakes, and red/orange black-hole rings.
 - The official [PewPew App Store listing](https://apps.apple.com/us/app/pewpew/id314964252) identifies its defining traits as multidirectional shooting, large enemy counts, five rule-driven modes, and sustained high frame rate. Its screenshots establish a cleaner pure-black field, thin luminous vector outlines, sparse magenta guides, grouped danger, and minimal telemetry.
 - The official [PewPew Live site](https://pewpew.live/) reinforces fast, diversified play and retro-futurist vector graphics. Geometry Fighter borrows those high-level principles through original silhouettes, Assault pacing, and telegraphed edge formations; it does not reproduce PewPew assets, level layouts, or interface composition.
@@ -37,7 +37,7 @@ Geometry Fighter is a dark neon arcade instrument: a near-black arena, electrica
 
 Colors are centralized in `assets/scripts/design-tokens.ts`. The reviewed combat silhouettes retain their exact legacy accents in `FIGHTER_ART`, `PROJECTILE_ART`, `ALLY_ART`, `SUPER_WEAPON_ART`, `ENEMY_ART_COLOR`, and `SUPER_EVENT_ART`; alpha variants may be derived for glow.
 
-Typography, touch geometry, and fighter primitives follow the same rule: Cocos consumes the typed token modules under `assets/scripts/`.
+Typography, touch geometry, and fighter primitives follow the same rule: the standalone WebGL renderer consumes the typed token modules under `assets/scripts/`.
 
 ## 3. Typography
 
@@ -51,14 +51,14 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 
 - Telemetry and arcade titles: `monospace`.
 - Chinese instructions: system `sans-serif`.
-- HUD text stays short enough to remain on one line at 390 px portrait width; temporary weapon telemetry may use a second line in Cocos.
+- HUD text stays short enough to remain on one line at 390 px portrait width; temporary weapon telemetry may use a second line in the HUD raster layer.
 
 ## 4. Spacing & Layout
 
 - Base unit: 4 px.
-- Arena inset: 8 px in Cocos design space.
+- Arena inset: 8 px in design space.
 - HUD edges: `max(28 design units, safe-area side + 12 design units)` so outlines and figures never touch a clipped screen edge.
-- Portrait HUD top: `max(24 design units, safe-area top + 12 design units, WeChat menu-button bottom + 12 design units)`; both telemetry columns share this anchor so the right column sits completely below the mini-game capsule. Cocos obtains the capsule from `wx.getMenuButtonBoundingClientRect()` and converts it into design-resolution units.
+- Portrait HUD top: `max(24 design units, safe-area top + 12 design units, WeChat menu-button bottom + 12 design units)`; both telemetry columns share this anchor so the right column sits completely below the mini-game capsule. The runtime obtains the capsule from `wx.getMenuButtonBoundingClientRect()` and converts it into design-resolution units.
 - The single movement control occupies the lower playfield; the lower-middle region remains clear so supply telemetry cannot be mistaken for a button.
 - The renderer scales to the full viewport and uses centered world coordinates.
 - Responsive targets: 390 × 844 portrait, 720 × 1280 design portrait, and 800 × 450 landscape developer mode.
@@ -95,9 +95,9 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 ### Projectile
 
 - **Variants**: standard yellow bolt, orange-white homing missile, cyan ally bolt, and cyan/magenta overdrive energy pulse.
-- **Reviewed model**: standard and missile tails remain 20/30 px with 12 px glow and 2.8 px core. The missile trades its former triangular head for the original game's round energy language: a filled white-hot core orb, a warm orange containment ring, and the long curved-pursuit tail — nothing in the inventory reads as an arrow. Overdrive replaces the standard bolt with a round white plasma core, cyan containment ring, and parallel magenta stabilizer rails.
+- **Reviewed model**: standard tails remain 20 px with 12 px glow and 2.8 px core. The 1.7.0 homing missile draws a real missile: a slender fuselage with a rounded nose cone and bright sensor tip, two swept tail fins, an orange flickering exhaust flame with a white-hot core, and a four-segment fading smoke contrail that sways behind the round — nothing in the inventory reads as an arrow. Overdrive replaces the standard bolt with a round white plasma core, cyan containment ring, and parallel magenta stabilizer rails.
 - **States**: flight, curved pursuit, impact, boundary impact.
-- **Motion**: missiles use bounded angular steering so course changes are visible and interruptible rather than snapping to a target.
+- **Motion**: missiles use bounded angular steering so course changes are visible and interruptible rather than snapping to a target; the flame flickers and the contrail sways every frame.
 - **Accessibility**: color, width, tail length, and missile silhouette all distinguish variants.
 
 ### Super Supply
@@ -131,7 +131,7 @@ Typography, touch geometry, and fighter primitives follow the same rule: Cocos c
 - **States**: title, playing, paused, game over, missile, overdrive, ally wing, active directional sector, and center-hold fire.
 - **Layout**: the arena may extend behind notches, while telemetry is anchored below the platform safe-area inset; transient messages stack below the telemetry band rather than overlapping it.
 - **Interaction**: in portrait, a drag above the dead zone updates both movement and a smoothed remembered heading. Returning the knob to center stops movement but keeps firing along that heading while the touch remains held. Releasing the touch stops fire. Each volley may choose one live enemy or super supply inside a 52-degree forward sector, but every projectile becomes ballistic at spawn and never follows that target.
-- **Physical tuning**: the floating stick uses a 48 px travel/ring, 17 px knob, 7 px dead zone, and 35 px response span. Cocos converts those physical pixels into design-resolution units with the current view scale.
+- **Physical tuning**: the floating stick uses a 48 px travel/ring, 17 px knob, 7 px dead zone, and 35 px response span. The runtime converts those physical pixels into design-resolution units with the current view scale.
 - **Visible bounds**: landscape sticks anchor to the physical canvas bounds, not unused vertical design space, so each 48 px ring retains at least 26 px of bottom clearance.
 - **Feedback**: while the floating stick is active, two faint rays and a connecting arc expose the eligible firing sector. The center ray shows the remembered heading even when the knob returns to center.
 - **Accessibility**: the sector lowers thumb precision demands without hiding directional intent or selecting targets behind the player. The opening guidance fades during seconds 3.5–4.5 and is then removed from the battlefield. Keyboard and landscape twin-stick controls remain available for development.
@@ -169,7 +169,18 @@ All motion represents gameplay state. Homing is reserved for the temporary missi
 
 Strategy: mixed luminous depth. The arena is flat and near-black; entities gain depth through additive alpha, colored outline, and bounded glow. Filled surfaces stay translucent so the grid remains visible beneath gameplay objects. No raster image substitutes for live entities.
 
-## 8. Accessibility Constraints & Accepted Debt
+## 8. Standalone WebGL Renderer (1.7.0)
+
+The Cocos Creator engine was removed to eliminate the frame-time degradation its immediate-mode `Graphics` component showed after several minutes of play. The replacement stack under `assets/scripts/`:
+
+- **VectorRenderer** tessellates every battlefield primitive into one preallocated grow-only `Float32Array` (6 floats per vertex: position + RGBA). A full combat frame is a single `drawArrays` call; nothing allocates after warmup, so long sessions cannot drift into GC stutter.
+- **GlSurface** owns the WebGL 1.0 context: one shader for the world batch, one textured pass for HUD labels, and a screen-shake camera offset uniform.
+- **TextSurface** rasterizes labels onto offscreen 2D canvases only when their string or color changes, then uploads them as textures.
+- **platform.ts** is the only engine seam: WeChat (`wx.createCanvas`, offscreen 2D, touch, storage, safe area) on one side, browsers (pointer events, `localStorage`) on the other. The game code stays platform-free and unit-testable under Node.
+- The WeChat main bundle drops from roughly 5 MB of engine code to about 150 KB; the music subpackage is unchanged.
+- The browser preview build (`build/web-preview`) runs the identical bundle for visual QA, with `?demo=play|missile` hands-free hooks.
+
+## 9. Accessibility Constraints & Accepted Debt
 
 ### Constraints
 
@@ -187,4 +198,4 @@ Strategy: mixed luminous depth. The arena is flat and near-black; entities gain 
 
 | Item | Location | Why accepted | Owner / Exit |
 |---|---|---|---|
-| Automatic OS reduced-motion detection | Cocos WeChat runtime | The platform layer exposes no stable preference signal; pursuit motion is also gameplay-critical. | Revisit when the target exposes a suitable preference API; reduce decorative particles while preserving trajectories. |
+| Automatic OS reduced-motion detection | WeChat mini-game runtime | The platform layer exposes no stable preference signal; pursuit motion is also gameplay-critical. | Revisit when the target exposes a suitable preference API; reduce decorative particles while preserving trajectories. |

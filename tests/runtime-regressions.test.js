@@ -17,7 +17,7 @@ test('presentation uses a portrait design resolution', function () {
   assert.deepEqual([DESIGN_WIDTH, DESIGN_HEIGHT], [720, 1280])
 })
 
-test('Cocos shades at one logical device pixel instead of the full retina resolution', function () {
+test('the renderer shades at one logical device pixel instead of the full retina resolution', function () {
   // Given: the production render-density policy.
   const { RENDER_PIXEL_RATIO } = require('../assets/scripts/presentation.ts')
 
@@ -39,7 +39,7 @@ test('top HUD clears both safe-area edges and the WeChat menu capsule', function
   assert.equal(layout.y + 40, viewport.height * 0.5 - layout.topInset)
 })
 
-test('Cocos entity radii preserve the early-August logical-pixel sizes', function () {
+test('world entity radii preserve the early-August logical-pixel sizes', function () {
   // Given: a 720-unit world displayed on the 390-pixel reference viewport.
   const { GeometryWorld } = require('../assets/scripts/simulation.ts')
   const world = new GeometryWorld()
@@ -65,7 +65,7 @@ test('Cocos entity radii preserve the early-August logical-pixel sizes', functio
   })
 })
 
-test('Cocos visual primitives consume the documented design tokens', function () {
+test('visual primitives consume the documented design tokens', function () {
   // Given: the shared palette, type scale, and one-thumb control metrics.
   const { COLORS, LAYOUT, TYPOGRAPHY, TOUCH } = require('../assets/scripts/design-tokens.ts')
 
@@ -162,7 +162,7 @@ test('presentation budgets bound high-load particle and grid distortion work', f
   assert.deepEqual(budget, { particles: 640, gridRipples: 6, stars: 48, gridPoints: 260 })
 })
 
-test('Cocos portrait controls keep firing through center hold and stop on release', function () {
+test('portrait controls keep firing through center hold and stop on release', function () {
   // Given: a portrait Cocos viewport whose design units are half a physical pixel.
   const { TouchControls } = require('../assets/scripts/touch-controls.ts')
   const { AIM_ASSIST_HALF_ANGLE, GeometryWorld } = require('../assets/scripts/simulation.ts')
@@ -201,7 +201,7 @@ test('Cocos portrait controls keep firing through center hold and stop on releas
   assert.equal(controls.right.active, false)
 })
 
-test('Cocos fighter traces the original claw silhouette from the 1.6.6 review feedback', function () {
+test('the fighter traces the original claw silhouette from the 1.6.6 review feedback', function () {
   // Given: the claw-ship contract that replaces the nine-point hull.
   const {
     FIGHTER_GLOW_ALPHA,
@@ -257,18 +257,28 @@ test('Cocos fighter traces the original claw silhouette from the 1.6.6 review fe
   })
 })
 
-test('Cocos projectiles, enemies, allies, and super supplies use the current combat tokens', function () {
+test('standalone projectiles, enemies, allies, and super supplies use the current combat tokens', function () {
   // Given: the reviewed combat primitives separated from simulation behavior.
-  const { ALLY_ART, COMBAT_ART_SCALE, ENEMY_ART_RADIUS, PROJECTILE_ART, SUPER_WEAPON_ART } = require('../assets/scripts/design-tokens.ts')
+  const { ALLY_ART, COMBAT_ART_SCALE, ENEMY_ART_RADIUS, MISSILE_ART, PROJECTILE_ART, SUPER_WEAPON_ART } = require('../assets/scripts/design-tokens.ts')
 
   // Then: each visible weapon form retains its historical silhouette and palette.
   assert.deepEqual(PROJECTILE_ART, {
-    bulletTail: 20, missileTail: 30, glowWidth: 12, coreWidth: 2.8,
-    missileCoreRadius: 3.6, missileRingRadius: 5.8, missileRingWidth: 1.6,
+    bulletTail: 20, glowWidth: 12, coreWidth: 2.8,
     overloadTail: 16, overloadGlowWidth: 18, overloadRailWidth: 2.2, overloadCoreRadius: 4.8,
     overloadRingRadius: 7.2, overloadRailOffset: 3.8, overloadRailLength: 12,
     bulletGlow: '#ffef49', missileGlow: '#ff892a', overloadGlow: '#42efff',
-    overloadCore: '#ffffff', overloadAccent: '#ff48ed', core: '#fffdd7', missileCore: '#fffce2'
+    overloadCore: '#ffffff', overloadAccent: '#ff48ed', core: '#fffdd7'
+  })
+  assert.deepEqual(MISSILE_ART, {
+    hull: '#fff3df', glow: '#ff892a', flame: '#ff7a1f', flameCore: '#ffe9a8',
+    hullStroke: 1.8, glowStroke: 11,
+    noseForward: 11, noseShoulderForward: 8.4, noseShoulderSide: 1.5,
+    bodyForward: 5.2, bodySide: 2.4, tailForward: -8.2, tailSide: 2.4, capForward: -9.4, capSide: 1.3,
+    finRootForward: -4.6, finRootSide: 2.3, finTipForward: -10.2, finTipSide: 5.4, finTrailForward: -8.4, finTrailSide: 2.1,
+    nozzleForward: -8.6, nozzleSide: 1.9,
+    flameBaseForward: -9.8, flameBaseSide: 1.8, flameCoreSide: 0.9,
+    flameLength: 7.5, flameFlicker: 3.2, flameCoreLength: 4.4,
+    contrailStart: 14, contrailSpan: 22, contrailSegments: 4, contrailWidth: 2.4, contrailSway: 1.6
   })
   assert.equal(COMBAT_ART_SCALE, 1.6)
   assert.deepEqual(ALLY_ART, {
@@ -364,8 +374,8 @@ test('WeChat build declares the soundtrack directory as a subpackage', function 
   const buildSource = readFileSync(join(__dirname, '..', 'scripts', 'build-wechat.js'), 'utf8')
 
   // Then: it also writes the matching package declaration and entry point.
-  assert.match(buildSource, /gameConfig\.subpackages/)
-  assert.match(buildSource, /root: 'music'/)
+  assert.match(buildSource, /subpackages: \[\{ name: 'music', root: 'music' \}\]/)
+  assert.match(buildSource, /join\(wechatOutput, 'music'\)/)
   assert.equal(readFileSync(join(__dirname, '..', 'music', 'game.js'), 'utf8'), 'module.exports = {}\n')
 })
 
