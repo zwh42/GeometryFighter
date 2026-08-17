@@ -1,6 +1,6 @@
 # Geometry Fighter
 
-当前发布版本：1.7.0
+当前发布版本：1.7.1
 
 一款为微信小游戏打造的竖屏单手霓虹生存射击游戏。**1.7.0 起完全运行在自研的零依赖 WebGL 渲染器上**（Cocos Creator 已移除）。目标是复现经典街机式几何战斗的核心感受：在不断升级的封闭网格中移动、沿手势方向持续射击、维持倍率并追逐高分。
 
@@ -37,7 +37,7 @@
 ## 运行
 
 1. 执行 `npm run build:wechat` 构建发布包（纯 Node + tsc，无需 Cocos Creator）。
-2. 微信开发者工具选择“小游戏”并导入 `build/wechat-1-7-0`。
+2. 微信开发者工具选择“小游戏”并导入 `build/wechat-1-7-1`。
 3. 使用默认竖屏模拟器编译运行。
 4. 首次触摸后音频解锁。
 5. 浏览器直接打开 `build/web-preview/index.html` 即可试玩同一份构建。
@@ -55,7 +55,7 @@ npm test
 npm run check
 ```
 
-构建微信小游戏发布包与浏览器预览包（默认输出 `build/wechat-1-7-0` 和 `build/web-preview`）：
+构建微信小游戏发布包与浏览器预览包（默认输出 `build/wechat-1-7-1` 和 `build/web-preview`）：
 
 ```bash
 npm run build:wechat

@@ -1,7 +1,7 @@
 {
   "name": "geometry-fighter",
   "uuid": "0c5a567f-41ae-4ece-b248-6ea928f57073",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "private": true,
   "description": "A standalone WebGL neon portrait one-thumb shooter for WeChat Mini Game",
   "scripts": {

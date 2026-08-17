@@ -3,7 +3,7 @@
 // metrics with a y-down safe area, cached storage, and a rasterizing text
 // factory; it never touches wx or DOM APIs directly.
 
-import type { LabelConfig, RasterFactory } from './text-surface.ts'
+import type { LabelConfig, RasterFactory, RasterHandle } from './text-surface.ts'
 import { TextLabel, TEXT_RASTER_SCALE } from './text-surface.ts'
 import { COLORS } from './design-tokens.ts'
 
@@ -126,7 +126,7 @@ interface MiniGameWindowInfo {
 
 interface MiniGameApi {
   createCanvas(): unknown
-  createOffscreenCanvas(options: { readonly type: '2d'; readonly width: number; readonly height: number }): unknown
+  createOffscreenCanvas?(options?: { readonly type?: '2d' | 'webgl'; readonly width?: number; readonly height?: number }): unknown
   createWebAudioContext?(): AudioContext
   createInnerAudioContext?(): { loop: boolean; autoplay: boolean; volume: number; src: string; play?(): void }
   loadSubpackage?(options: { readonly name: string; readonly success: () => void }): void
@@ -157,6 +157,51 @@ function asRasterContext(handle: unknown): RasterContext2D {
   return handle as RasterContext2D
 }
 
+interface WxRasterCanvas {
+  getContext?(type: '2d'): unknown
+  width?: number
+  height?: number
+}
+
+// wx.createOffscreenCanvas is absent on some reviewed device combinations —
+// the 1.7.0 submission was rejected on iPhone 13 / iOS 26.5 / WeChat 8.0.75
+// with "createOffscreenCanvas is not a function" freezing the boot screen —
+// and clients predating base library 2.16.1 only provide the argument-free
+// legacy form. Probe every form and finally fall back to repeated
+// wx.createCanvas() calls: the constructor's first call already claimed the
+// on-screen canvas for GL, so each later call returns an offscreen canvas.
+function createWeChatRaster(api: MiniGameApi, width: number, height: number): RasterHandle {
+  if (typeof api.createOffscreenCanvas === 'function') {
+    const offscreen = api.createOffscreenCanvas.bind(api)
+    const modern = sizedRaster(() => offscreen({ type: '2d', width, height }), width, height)
+    if (modern !== null) return modern
+    const legacy = sizedRaster(() => offscreen(), width, height)
+    if (legacy !== null) return legacy
+  }
+  const canvas = api.createCanvas() as WxRasterCanvas
+  canvas.width = width
+  canvas.height = height
+  return canvas
+}
+
+function sizedRaster(create: () => unknown, width: number, height: number): RasterHandle | null {
+  let canvas: WxRasterCanvas | null = null
+  try {
+    canvas = create() as WxRasterCanvas | null
+  } catch (error) {
+    return null
+  }
+  if (!canvas || typeof canvas.getContext !== 'function' || !canvas.getContext('2d')) return null
+  try {
+    if (canvas.width !== width) canvas.width = width
+    if (canvas.height !== height) canvas.height = height
+  } catch (error) {
+    // Locked-size legacy canvases are unusable; take the next fallback form.
+    return null
+  }
+  return canvas.width === width && canvas.height === height ? canvas : null
+}
+
 export class WeChatPlatform implements PlatformHost {
   readonly kind = 'wechat' as const
   readonly glCanvas: unknown
@@ -168,7 +213,7 @@ export class WeChatPlatform implements PlatformHost {
     if (!api) throw new Error('WeChatPlatform requires the wx mini-game runtime')
     this.api = api
     this.glCanvas = api.createCanvas()
-    this.createRaster = (width, height) => api.createOffscreenCanvas({ type: '2d', width, height })
+    this.createRaster = (width, height) => createWeChatRaster(api, width, height)
     api.setPreferredFramesPerSecond?.(60)
   }
 

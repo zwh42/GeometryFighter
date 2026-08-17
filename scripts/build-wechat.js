@@ -10,7 +10,7 @@ const { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, 
 const { join, resolve } = require('node:path')
 
 const project = resolve(__dirname, '..')
-const outputName = process.argv[2] || 'wechat-1-7-0'
+const outputName = process.argv[2] || 'wechat-1-7-1'
 if (!/^[a-zA-Z0-9._-]+$/.test(outputName)) throw new Error(`Invalid output name: ${outputName}`)
 const musicFiles = ['game.js', 'bgm.mp3', 'grid-pressure.mp3', 'grid-runner-pulse.mp3', 'gravity-coin.mp3', 'gravity-coin-alt.mp3']
 const sourcesDirectory = join(project, 'assets', 'scripts')

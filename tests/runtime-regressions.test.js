@@ -463,6 +463,136 @@ test('background music changes every minute without immediately repeating', func
   }
 })
 
+test('the game boots when wx.createOffscreenCanvas is missing entirely', function () {
+  // Given: the reviewer's iPhone 13 / iOS 26.5 / WeChat 8.0.75 runtime, where
+  // wx.createOffscreenCanvas is not a function and only wx.createCanvas exists
+  // (first call returns the on-screen canvas, later calls offscreen canvases).
+  const originalPlatform = globalThis.wx
+  const canvases = []
+  globalThis.wx = {
+    createCanvas: function () {
+      const canvas = new FakeWxCanvas()
+      canvases.push(canvas)
+      return canvas
+    }
+  }
+
+  // When: the WeChat platform boots and rasterizes a HUD label.
+  try {
+    const { WeChatPlatform } = require('../assets/scripts/platform.ts')
+    const { TextLabel, TEXT_RASTER_SCALE } = require('../assets/scripts/text-surface.ts')
+    const platform = new WeChatPlatform()
+    const label = new TextLabel({ width: 200, height: 80, fontSize: 32, lineHeight: 36, outlineWidth: 2, align: 'center', monospace: true }, platform.createRaster)
+    label.setText('SCORE 00000000')
+    platform.rasterizeLabel(label)
+
+    // Then: the raster comes from a later offscreen createCanvas call, keeps
+    // the supersampled label size, and never aliases the on-screen GL canvas.
+    assert.equal(canvases.length, 2)
+    assert.equal(platform.glCanvas, canvases[0])
+    assert.equal(label.raster, canvases[1])
+    assert.equal(label.raster.width, Math.ceil(200 * TEXT_RASTER_SCALE))
+    assert.equal(label.raster.height, Math.ceil(80 * TEXT_RASTER_SCALE))
+    assert.equal(label.dirty, false)
+    assert.deepEqual(label.raster.context.fills, ['SCORE 00000000'])
+  } finally {
+    globalThis.wx = originalPlatform
+  }
+})
+
+test('the legacy argument-free offscreen canvas form is adopted and resized', function () {
+  // Given: a runtime whose createOffscreenCanvas rejects the options form and
+  // only returns a fixed 300x150 legacy canvas.
+  const originalPlatform = globalThis.wx
+  const legacy = new FakeWxCanvas()
+  legacy.width = 300
+  legacy.height = 150
+  globalThis.wx = {
+    createCanvas: function () { return new FakeWxCanvas() },
+    createOffscreenCanvas: function (options) {
+      if (options) throw new TypeError('legacy runtime')
+      return legacy
+    }
+  }
+
+  // When: a raster is requested at an exact label size.
+  try {
+    const { WeChatPlatform } = require('../assets/scripts/platform.ts')
+    const platform = new WeChatPlatform()
+    const raster = platform.createRaster(90, 45)
+
+    // Then: the legacy canvas is reused once resized to the request.
+    assert.equal(raster, legacy)
+    assert.equal(legacy.width, 90)
+    assert.equal(legacy.height, 45)
+  } finally {
+    globalThis.wx = originalPlatform
+  }
+})
+
+test('the modern offscreen canvas form stays preferred when it works', function () {
+  // Given: a healthy runtime providing the options form of createOffscreenCanvas.
+  const originalPlatform = globalThis.wx
+  let offscreenCalls = 0
+  let canvasCalls = 0
+  globalThis.wx = {
+    createCanvas: function () { canvasCalls += 1; return new FakeWxCanvas() },
+    createOffscreenCanvas: function (options) {
+      offscreenCalls += 1
+      const canvas = new FakeWxCanvas()
+      if (options) { canvas.width = options.width; canvas.height = options.height }
+      return canvas
+    }
+  }
+
+  // When: the platform boots and creates one raster.
+  try {
+    const { WeChatPlatform } = require('../assets/scripts/platform.ts')
+    const platform = new WeChatPlatform()
+    const raster = platform.createRaster(60, 30)
+
+    // Then: only the on-screen canvas plus one options-form call are made.
+    assert.equal(canvasCalls, 1)
+    assert.equal(offscreenCalls, 1)
+    assert.equal(raster.width, 60)
+    assert.equal(raster.height, 30)
+  } finally {
+    globalThis.wx = originalPlatform
+  }
+})
+
+class FakeWxCanvas {
+  constructor() {
+    this.width = 0
+    this.height = 0
+    this.context = new FakeRasterContext()
+  }
+
+  getContext(type) {
+    return type === '2d' ? this.context : null
+  }
+}
+
+class FakeRasterContext {
+  constructor() {
+    this.font = ''
+    this.textBaseline = ''
+    this.textAlign = ''
+    this.lineWidth = 0
+    this.strokeStyle = ''
+    this.fillStyle = ''
+    this.fills = []
+  }
+
+  clearRect() {}
+
+  strokeText() {}
+
+  fillText(text) {
+    this.fills.push(text)
+  }
+}
+
 class FakeAudioParam {
   constructor() {
     this.values = []
