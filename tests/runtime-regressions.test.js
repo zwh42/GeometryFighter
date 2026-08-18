@@ -76,7 +76,7 @@ test('visual primitives consume the documented design tokens', function () {
     violet: '#9d61ff', yellow: '#ffe45c', orange: '#ff9f2f', red: '#ff554d'
   })
   assert.deepEqual(TYPOGRAPHY, {
-    display: 74, displayLineHeight: 72, hudPrimary: 23, hudSecondary: 18,
+    display: 92, displayLineHeight: 160, hudPrimary: 23, hudSecondary: 18,
     subtitle: 22, prompt: 20, message: 32, lineHeightExtra: 4, outlineWidth: 2
   })
   assert.deepEqual(TOUCH, {

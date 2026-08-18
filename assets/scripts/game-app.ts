@@ -111,12 +111,13 @@ interface LabelSpec {
   readonly lineHeight: number
   readonly align: 'left' | 'center' | 'right'
   readonly monospace: boolean
+  readonly display?: boolean
 }
 
 const LABEL_SPECS: readonly LabelSpec[] = [
   { name: 'score', width: LAYOUT.scoreWidth, height: LAYOUT.scoreHeight, fontSize: TYPOGRAPHY.hudPrimary, lineHeight: TYPOGRAPHY.hudPrimary + TYPOGRAPHY.lineHeightExtra, align: 'left', monospace: true },
   { name: 'status', width: 420, height: LAYOUT.scoreHeight, fontSize: TYPOGRAPHY.hudSecondary, lineHeight: TYPOGRAPHY.hudSecondary + TYPOGRAPHY.lineHeightExtra, align: 'right', monospace: true },
-  { name: 'title', width: LAYOUT.labelWidth, height: LAYOUT.labelHeight, fontSize: TYPOGRAPHY.display, lineHeight: TYPOGRAPHY.displayLineHeight, align: 'center', monospace: true },
+  { name: 'title', width: LAYOUT.labelWidth, height: LAYOUT.labelHeight, fontSize: TYPOGRAPHY.display, lineHeight: TYPOGRAPHY.displayLineHeight, align: 'center', monospace: false, display: true },
   { name: 'subtitle', width: LAYOUT.labelWidth, height: LAYOUT.labelHeight, fontSize: TYPOGRAPHY.subtitle, lineHeight: TYPOGRAPHY.subtitle + TYPOGRAPHY.lineHeightExtra, align: 'center', monospace: false },
   { name: 'prompt', width: LAYOUT.labelWidth, height: LAYOUT.labelHeight, fontSize: TYPOGRAPHY.prompt, lineHeight: TYPOGRAPHY.prompt + TYPOGRAPHY.lineHeightExtra, align: 'center', monospace: false },
   { name: 'message', width: LAYOUT.labelWidth, height: LAYOUT.labelHeight, fontSize: TYPOGRAPHY.message, lineHeight: TYPOGRAPHY.message + TYPOGRAPHY.lineHeightExtra, align: 'center', monospace: true }
@@ -232,6 +233,9 @@ export class GameApp {
       this.labelsByName.set(spec.name, label)
     }
     this.labelOf('message').visible = false
+    this.platform.onFontLoaded?.(() => {
+      for (const label of this.labels) label.dirty = true
+    })
     this.populateStars()
     this.storedHighScore = Number(platform.storageGet(HIGH_SCORE_KEY) || 0)
     this.world.highScore = this.storedHighScore
@@ -1159,13 +1163,13 @@ export class GameApp {
     this.labelOf('prompt').visible = showTitle || showGameOver || this.world.state === 'paused'
     if (showTitle) {
       const title = this.labelOf('title')
-      title.setText('GEOMETRY\nFIGHTER')
+      title.setText('几何空战')
       title.setColor(COLORS.white)
       this.labelOf('subtitle').setText('竖屏单手 · 拖动方向自动射击 · 保持倍率')
       this.labelOf('prompt').setText('下半屏单指拖动  /  ONE THUMB TO ENGAGE')
     } else if (showGameOver) {
       const title = this.labelOf('title')
-      title.setText('GRID\nCOLLAPSED')
+      title.setText('网格崩塌')
       title.setColor(COLORS.red)
       this.labelOf('subtitle').setText(`FINAL SCORE  ${scoreText(this.world.score)}`)
       this.labelOf('prompt').setText('触摸重新接入网格  /  TOUCH TO RESTART')

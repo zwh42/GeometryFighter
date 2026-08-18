@@ -48,6 +48,7 @@ export interface PlatformHost {
   onTouch(handlers: TouchHandlers): void
   onKey(handlers: KeyHandlers): void
   onVisibility(listener: (visible: boolean) => void): void
+  onFontLoaded?(listener: () => void): void
   storageGet(key: string): string
   storageSet(key: string, value: string): void
   requestFrame(callback: () => void): void
@@ -71,8 +72,35 @@ export interface RasterContext2D {
 const MONO_STACK = "ui-monospace,'SF Mono',Menlo,Consolas,'Courier New',monospace"
 const SANS_STACK = "system-ui,-apple-system,'PingFang SC','Noto Sans SC',sans-serif"
 
+// The bundled display face (subsets of Smiley Sans Oblique, OFL 1.1) carries
+// only the title glyphs; every other label stays on the stacks above.
+const DISPLAY_FONT_FAMILY = 'jihekongzhan-title'
+const DISPLAY_FONT_SOURCE = 'fonts/title-font.ttf'
+const DISPLAY_STACK = `'${DISPLAY_FONT_FAMILY}','PingFang SC','Noto Sans SC',sans-serif`
+
 function fontFor(config: LabelConfig): string {
+  if (config.display) return `${Math.round(config.fontSize * TEXT_RASTER_SCALE)}px ${DISPLAY_STACK}`
   return `700 ${Math.round(config.fontSize * TEXT_RASTER_SCALE)}px ${config.monospace ? MONO_STACK : SANS_STACK}`
+}
+
+// The display face registers after boot (wx.loadFont and FontFace are async),
+// so each platform gates a one-shot notification; the shell then re-rasterizes
+// labels that were first drawn against the system CJK fallback.
+class DisplayFontGate {
+  private ready = false
+  private listeners: (() => void)[] = []
+
+  notify(): void {
+    if (this.ready) return
+    this.ready = true
+    for (const listener of this.listeners) listener()
+    this.listeners = []
+  }
+
+  add(listener: () => void): void {
+    if (this.ready) listener()
+    else this.listeners.push(listener)
+  }
 }
 
 export function rasterizeLabelWith(context: RasterContext2D, label: TextLabel, pixelWidth: number, pixelHeight: number): void {
@@ -144,6 +172,7 @@ interface MiniGameApi {
   getStorageSync(key: string): string
   setStorageSync(key: string, value: string): void
   setPreferredFramesPerSecond?(fps: number): void
+  loadFont?(options: { readonly family: string; readonly source: string; readonly success?: () => void; readonly fail?: () => void }): void
 }
 
 export type { MiniGameApi }
@@ -207,6 +236,7 @@ export class WeChatPlatform implements PlatformHost {
   readonly glCanvas: unknown
   readonly createRaster: RasterFactory
   private readonly api: MiniGameApi
+  private readonly displayFont = new DisplayFontGate()
 
   constructor() {
     const api = globalThis.wx
@@ -215,6 +245,15 @@ export class WeChatPlatform implements PlatformHost {
     this.glCanvas = api.createCanvas()
     this.createRaster = (width, height) => createWeChatRaster(api, width, height)
     api.setPreferredFramesPerSecond?.(60)
+    api.loadFont?.({
+      family: DISPLAY_FONT_FAMILY,
+      source: DISPLAY_FONT_SOURCE,
+      success: () => this.displayFont.notify()
+    })
+  }
+
+  onFontLoaded(listener: () => void): void {
+    this.displayFont.add(listener)
   }
 
   rasterizeLabel(label: TextLabel): void {
@@ -296,15 +335,29 @@ interface PointerEventLike {
   preventDefault?(): void
 }
 
+// The preview package ships the display font beside index.html; a missing file
+// or unsupported FontFace API just keeps the system CJK fallback.
+function loadWebDisplayFont(win: WebWindow, doc: WebDocument, gate: DisplayFontGate): void {
+  const FontFace = win.FontFace
+  if (!FontFace || !doc.fonts) return
+  const face = new FontFace(DISPLAY_FONT_FAMILY, `url(${DISPLAY_FONT_SOURCE})`)
+  face.load().then(() => {
+    doc.fonts?.add(face)
+    gate.notify()
+  }).catch(() => undefined)
+}
+
 export interface WebWindow {
   readonly innerWidth: number
   readonly innerHeight: number
   readonly localStorage: { getItem(key: string): string | null; setItem(key: string, value: string): void }
+  readonly FontFace?: new (family: string, source: string) => { load(): Promise<unknown> }
   addEventListener(type: string, listener: (event: unknown) => void): void
 }
 
 export interface WebDocument {
   readonly visibilityState: string
+  readonly fonts?: { add(font: unknown): void }
   createElement(tag: 'canvas'): DomCanvas
   getElementById(id: string): DomCanvas | null
   addEventListener(type: string, listener: () => void): void
@@ -317,6 +370,7 @@ export class WebPlatform implements PlatformHost {
   private readonly win: WebWindow
   private readonly doc: WebDocument
   private readonly canvas: DomCanvas
+  private readonly displayFont = new DisplayFontGate()
 
   constructor(win: WebWindow, doc: WebDocument, canvas: DomCanvas) {
     this.win = win
@@ -333,6 +387,11 @@ export class WebPlatform implements PlatformHost {
     canvas.style.height = '100vh'
     canvas.style.touchAction = 'none'
     canvas.style.display = 'block'
+    loadWebDisplayFont(win, doc, this.displayFont)
+  }
+
+  onFontLoaded(listener: () => void): void {
+    this.displayFont.add(listener)
   }
 
   rasterizeLabel(label: TextLabel): void {

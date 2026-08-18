@@ -10,9 +10,10 @@ const { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, 
 const { join, resolve } = require('node:path')
 
 const project = resolve(__dirname, '..')
-const outputName = process.argv[2] || 'wechat-1-7-1'
+const outputName = process.argv[2] || 'wechat-1-7-2'
 if (!/^[a-zA-Z0-9._-]+$/.test(outputName)) throw new Error(`Invalid output name: ${outputName}`)
 const musicFiles = ['game.js', 'bgm.mp3', 'grid-pressure.mp3', 'grid-runner-pulse.mp3', 'gravity-coin.mp3', 'gravity-coin-alt.mp3']
+const fontFiles = ['fonts/title-font.ttf', 'fonts/OFL.txt']
 const sourcesDirectory = join(project, 'assets', 'scripts')
 const stageDirectory = join(project, 'temp', 'standalone-stage')
 const distDirectory = join(project, 'temp', 'standalone-dist')
@@ -122,18 +123,25 @@ function writeWeChatPackage(bundleSource) {
   const musicDirectory = join(wechatOutput, 'music')
   mkdirSync(musicDirectory, { recursive: true })
   for (const musicFile of musicFiles) copyFileSync(join(project, 'music', musicFile), join(musicDirectory, musicFile))
+  copyFontFiles(wechatOutput)
+}
+
+function copyFontFiles(output) {
+  mkdirSync(join(output, 'fonts'), { recursive: true })
+  for (const fontFile of fontFiles) copyFileSync(join(project, fontFile), join(output, fontFile))
 }
 
 function writeWebPackage(bundleSource) {
   rmSync(webOutput, { recursive: true, force: true })
   mkdirSync(webOutput, { recursive: true })
   writeFileSync(join(webOutput, 'game.js'), `${bundleSource}\n`)
+  copyFontFiles(webOutput)
   writeFileSync(join(webOutput, 'index.html'), `<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Geometry Fighter</title>
+<title>几何空战</title>
 <style>
 html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000006; overflow: hidden; }
 canvas { position: fixed; inset: 0; }
@@ -152,7 +160,7 @@ compileTypeScript()
 const bundleSource = bundle()
 writeWeChatPackage(bundleSource)
 writeWebPackage(bundleSource)
-for (const required of [join(wechatOutput, 'game.js'), join(wechatOutput, 'game.json'), join(wechatOutput, 'project.config.json'), join(wechatOutput, 'music', 'bgm.mp3'), join(webOutput, 'index.html'), join(webOutput, 'game.js')]) {
+for (const required of [join(wechatOutput, 'game.js'), join(wechatOutput, 'game.json'), join(wechatOutput, 'project.config.json'), join(wechatOutput, 'music', 'bgm.mp3'), join(wechatOutput, 'fonts', 'title-font.ttf'), join(webOutput, 'index.html'), join(webOutput, 'game.js'), join(webOutput, 'fonts', 'title-font.ttf')]) {
   if (!existsSync(required) || !statSync(required).isFile()) throw new Error(`build product missing: ${required}`)
 }
 process.stdout.write(`Standalone release ready: ${wechatOutput}\nBrowser preview ready: ${webOutput}\n`)

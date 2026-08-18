@@ -14,8 +14,11 @@ export const COLORS = {
 } as const
 
 export const TYPOGRAPHY = {
-  display: 74,
-  displayLineHeight: 72,
+  // displayLineHeight must equal LAYOUT.labelHeight: the title is one line and
+  // the rasterizer centers line k at (k + 0.5) * lineHeight, so only a full
+  // height lineHeight puts that line at the label quad's center.
+  display: 92,
+  displayLineHeight: 160,
   hudPrimary: 23,
   hudSecondary: 18,
   subtitle: 22,

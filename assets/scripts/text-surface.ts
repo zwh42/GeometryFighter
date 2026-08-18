@@ -10,6 +10,7 @@ export interface LabelConfig {
   readonly outlineWidth: number
   readonly align: 'left' | 'center' | 'right'
   readonly monospace: boolean
+  readonly display?: boolean
 }
 
 export type RasterHandle = unknown
