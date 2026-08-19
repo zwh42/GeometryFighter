@@ -27,6 +27,9 @@ export class TextLabel {
   visible = true
   x = 0
   y = 0
+  // Per-frame neon bloom strength in [0, 1]; 0 draws only the crisp quad. The
+  // shell drives it from titleGlowPulse, so it never touches rasterization.
+  glow = 0
   dirty = true
   readonly pixelWidth: number
   readonly pixelHeight: number

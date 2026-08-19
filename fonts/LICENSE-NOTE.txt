@@ -1,0 +1,9 @@
+fonts/DingTalk-JinBuTi.ttf — 标题「几何空战 / 网格崩塌」显示字体
+
+钉钉进步体（DingTalk JinBuTi），版权所有 © 2022 钉钉（中国）信息技术有限公司。
+
+授权要点（详见官方《钉钉进步体法律声明》）：
+- 面向全社会开放下载和使用，所有平台永久免费商用；
+- 本项目按“使用”方式嵌入未修改的原始字体文件，仅用于界面文字渲染；
+- 未经钉钉授权不得转售、转载、修改字库或单独分发字体文件。
+官方下载页：https://page.dingtalk.com/wow/dingtalk/default/dingtalk/y-W5aF3_ZJwzulU0nceIl

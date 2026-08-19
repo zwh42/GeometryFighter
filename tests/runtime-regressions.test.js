@@ -25,6 +25,25 @@ test('the renderer shades at one logical device pixel instead of the full retina
   assert.equal(RENDER_PIXEL_RATIO, 1)
 })
 
+test('title glow flicker stays bounded and keeps breathing over time', function () {
+  // Given: the neon-sign pulse behind the title.
+  const { titleGlowPulse } = require('../assets/scripts/presentation.ts')
+
+  // When: a long stretch of time is sampled densely (including stutter windows).
+  let minimum = 1
+  let maximum = 0
+  for (let t = 0; t < 60; t += 0.01) {
+    const pulse = titleGlowPulse(t)
+    minimum = Math.min(minimum, pulse)
+    maximum = Math.max(maximum, pulse)
+  }
+
+  // Then: the sign dims and flares but never blacks out or saturates.
+  assert.ok(minimum >= 0.3, `pulse bottom ${minimum} below 0.3`)
+  assert.ok(maximum <= 1, `pulse peak ${maximum} above 1`)
+  assert.ok(maximum - minimum > 0.2, 'pulse does not visibly breathe')
+})
+
 test('top HUD clears both safe-area edges and the WeChat menu capsule', function () {
   // Given: a portrait viewport with a 90-unit cutout and a menu capsule ending 124 units from the top.
   const { hudLayout } = require('../assets/scripts/presentation.ts')

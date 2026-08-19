@@ -154,3 +154,12 @@ export class ReactiveGridLattice {
     }
   }
 }
+
+// Neon-tube flicker for the title glow: a slow breath, a fine shimmer, and a
+// brief stutter roughly every three seconds. Always clamped to [0.3, 1] so the
+// sign dims and flares but never blacks out.
+export function titleGlowPulse(time: number): number {
+  const breathe = 0.72 + 0.18 * Math.sin(time * 2.1) + 0.08 * Math.sin(time * 5.7 + 1.3)
+  const stutter = (time * 0.31) % 1 < 0.045 ? 0.55 + 0.45 * Math.sin(time * 90) : 1
+  return Math.min(1, Math.max(0.3, breathe * stutter))
+}

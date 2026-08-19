@@ -22,10 +22,11 @@ import {
   STAR_COUNT,
   gridBounds,
   gridPointIndex,
-  hudLayout
+  hudLayout,
+  titleGlowPulse
 } from './presentation.ts'
 import type { GridBounds } from './presentation.ts'
-import { ALLY_ART, COLORS, COMBAT_ART_SCALE, ENEMY_ART_RADIUS, GEOM_ART, GRID_LINES, LAYOUT, MISSILE_ART, PROJECTILE_ART, STROKES, SUPER_WEAPON_ART, TOUCH, TYPOGRAPHY } from './design-tokens.ts'
+import { ALLY_ART, COLORS, COMBAT_ART_SCALE, ENEMY_ART_RADIUS, GEOM_ART, GRID_LINES, LAYOUT, MISSILE_ART, PROJECTILE_ART, STROKES, SUPER_WEAPON_ART, TITLE_GLOW, TITLE_HALO, TOUCH, TYPOGRAPHY } from './design-tokens.ts'
 import type { GridLineStyle } from './design-tokens.ts'
 import { Synth } from './synth.ts'
 import { TouchControls } from './touch-controls.ts'
@@ -563,6 +564,9 @@ export class GameApp {
     this.renderEffects(renderer)
     this.renderEntities(renderer)
     this.renderControls(renderer)
+    const titleGlow = this.world.state === 'title' ? titleGlowPulse(this.time) : 0
+    this.labelOf('title').glow = titleGlow
+    if (titleGlow > 0) this.renderTitleHalo(renderer, titleGlow)
     if (this.flashIntensity > 0.01) {
       const width = this.world.width
       const height = this.world.height
@@ -583,6 +587,21 @@ export class GameApp {
       },
       background: BACKGROUND_RGB
     })
+  }
+
+  // Fluorescent backdrop for the title sign: stacked flat discs fake a radial
+  // falloff and one magenta ring keeps blooming outward in cycles, all riding
+  // the same titleGlowPulse flicker as the additive glyph bloom.
+  private renderTitleHalo(renderer: VectorRenderer, glow: number): void {
+    const y = LAYOUT.titleY
+    for (const disc of TITLE_HALO.discs) {
+      renderer.setColor(TITLE_GLOW.cyan, Math.round(disc.alpha * glow))
+      renderer.disc(0, y, disc.radius, 26)
+    }
+    const phase = (this.time % TITLE_HALO.ringSeconds) / TITLE_HALO.ringSeconds
+    renderer.setWidth(TITLE_HALO.ringWidth)
+    renderer.setColor(TITLE_GLOW.magenta, Math.round(TITLE_HALO.ringAlpha * (1 - phase) * glow))
+    renderer.ring(0, y, TITLE_HALO.ringStart + (TITLE_HALO.ringEnd - TITLE_HALO.ringStart) * phase)
   }
 
   private renderGrid(renderer: VectorRenderer): void {

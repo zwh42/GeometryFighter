@@ -72,10 +72,11 @@ export interface RasterContext2D {
 const MONO_STACK = "ui-monospace,'SF Mono',Menlo,Consolas,'Courier New',monospace"
 const SANS_STACK = "system-ui,-apple-system,'PingFang SC','Noto Sans SC',sans-serif"
 
-// The bundled display face (subsets of Smiley Sans Oblique, OFL 1.1) carries
-// only the title glyphs; every other label stays on the stacks above.
+// The bundled display face is the unmodified DingTalk JinBuTi (钉钉进步体,
+// permanently free for commercial use; see fonts/LICENSE-NOTE.txt). Every
+// other label stays on the stacks above.
 const DISPLAY_FONT_FAMILY = 'jihekongzhan-title'
-const DISPLAY_FONT_SOURCE = 'fonts/title-font.ttf'
+const DISPLAY_FONT_SOURCE = 'fonts/DingTalk-JinBuTi.ttf'
 const DISPLAY_STACK = `'${DISPLAY_FONT_FAMILY}','PingFang SC','Noto Sans SC',sans-serif`
 
 function fontFor(config: LabelConfig): string {

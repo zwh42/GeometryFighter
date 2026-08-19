@@ -10,10 +10,10 @@ const { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, 
 const { join, resolve } = require('node:path')
 
 const project = resolve(__dirname, '..')
-const outputName = process.argv[2] || 'wechat-1-7-2'
+const outputName = process.argv[2] || 'wechat-1-7-3'
 if (!/^[a-zA-Z0-9._-]+$/.test(outputName)) throw new Error(`Invalid output name: ${outputName}`)
 const musicFiles = ['game.js', 'bgm.mp3', 'grid-pressure.mp3', 'grid-runner-pulse.mp3', 'gravity-coin.mp3', 'gravity-coin-alt.mp3']
-const fontFiles = ['fonts/title-font.ttf', 'fonts/OFL.txt']
+const fontFiles = ['fonts/DingTalk-JinBuTi.ttf', 'fonts/LICENSE-NOTE.txt']
 const sourcesDirectory = join(project, 'assets', 'scripts')
 const stageDirectory = join(project, 'temp', 'standalone-stage')
 const distDirectory = join(project, 'temp', 'standalone-dist')
@@ -160,7 +160,7 @@ compileTypeScript()
 const bundleSource = bundle()
 writeWeChatPackage(bundleSource)
 writeWebPackage(bundleSource)
-for (const required of [join(wechatOutput, 'game.js'), join(wechatOutput, 'game.json'), join(wechatOutput, 'project.config.json'), join(wechatOutput, 'music', 'bgm.mp3'), join(wechatOutput, 'fonts', 'title-font.ttf'), join(webOutput, 'index.html'), join(webOutput, 'game.js'), join(webOutput, 'fonts', 'title-font.ttf')]) {
+for (const required of [join(wechatOutput, 'game.js'), join(wechatOutput, 'game.json'), join(wechatOutput, 'project.config.json'), join(wechatOutput, 'music', 'bgm.mp3'), join(wechatOutput, 'fonts', 'DingTalk-JinBuTi.ttf'), join(webOutput, 'index.html'), join(webOutput, 'game.js'), join(webOutput, 'fonts', 'DingTalk-JinBuTi.ttf')]) {
   if (!existsSync(required) || !statSync(required).isFile()) throw new Error(`build product missing: ${required}`)
 }
 process.stdout.write(`Standalone release ready: ${wechatOutput}\nBrowser preview ready: ${webOutput}\n`)

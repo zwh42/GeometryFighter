@@ -28,6 +28,37 @@ export const TYPOGRAPHY = {
   outlineWidth: 2
 } as const
 
+// Neon signage for the title screen: two additive bloom copies of the title
+// raster spread past the glyphs (cyan tighter, magenta wider and offset for a
+// chromatic edge), all scaled every frame by the titleGlowPulse flicker.
+export const TITLE_GLOW = {
+  cyan: COLORS.cyan,
+  magenta: COLORS.magenta,
+  cyanSpread: 1.09,
+  magentaSpread: 1.22,
+  cyanOffsetX: -5,
+  magentaOffsetX: 5,
+  cyanAlpha: 52,
+  magentaAlpha: 34
+} as const
+
+// The fluorescent backdrop behind the title: stacked flat discs fake a radial
+// falloff in the world pass, and one ring keeps blooming outward in cycles so
+// the sign reads as powered, breathing light.
+export const TITLE_HALO = {
+  discs: [
+    { radius: 238, alpha: 7 },
+    { radius: 188, alpha: 10 },
+    { radius: 143, alpha: 13 },
+    { radius: 104, alpha: 15 }
+  ],
+  ringStart: 70,
+  ringEnd: 336,
+  ringSeconds: 2.4,
+  ringWidth: 2.4,
+  ringAlpha: 30
+} as const
+
 export const TOUCH = {
   travel: 48,
   ringRadius: 48,
