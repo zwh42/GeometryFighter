@@ -90,7 +90,7 @@ test('visual primitives consume the documented design tokens', function () {
 
   // Then: Cocos uses the documented semantic values.
   assert.deepEqual(COLORS, {
-    background: '#000006', grid: '#2a7190', gridHot: '#15d8ff', white: '#ffffff',
+    background: '#000006', grid: '#2a7190', gridDeep: '#1e1e8b', gridHot: '#15d8ff', white: '#ffffff',
     hud: '#b9ff36', cyan: '#42efff', green: '#4dff67', magenta: '#ff48ed',
     violet: '#9d61ff', yellow: '#ffe45c', orange: '#ff9f2f', red: '#ff554d'
   })
@@ -334,7 +334,7 @@ test('background music schedules recurring tones after audio unlock', function (
   assert.ok(context.gains.every(function (gain) { return gain.gain.values[0] >= 0.04 }))
 })
 
-test('first gesture starts the packaged looping background track', function () {
+test('first gesture starts the packaged background track', function () {
   // Given: the shipped music asset and the Cocos WeChat audio adapter.
   const musicBytes = readFileSync(join(__dirname, '..', 'music', 'bgm.mp3'))
   const originalPlatform = globalThis.wx
@@ -353,10 +353,10 @@ test('first gesture starts the packaged looping background track', function () {
     globalThis.wx = originalPlatform
   }
 
-  // Then: a real MP3 is present and the adapter starts one uninterrupted visible-volume loop.
+  // Then: a real MP3 is present and the adapter starts one full-playback track.
   assert.equal(musicBytes.subarray(0, 3).toString('ascii'), 'ID3')
   assert.equal(cocosMusic.src, 'music/bgm.mp3')
-  assert.equal(cocosMusic.loop, true)
+  assert.equal(cocosMusic.loop, false)
   assert.equal(cocosMusic.volume, 0.24)
   assert.equal(cocosMusic.playCount, 1)
 })
@@ -398,7 +398,7 @@ test('WeChat build declares the soundtrack directory as a subpackage', function 
   assert.equal(readFileSync(join(__dirname, '..', 'music', 'game.js'), 'utf8'), 'module.exports = {}\n')
 })
 
-test('looping music survives an unavailable effects audio context', function () {
+test('packaged music survives an unavailable effects audio context', function () {
   // Given: music support is present while the optional WebAudio effects factory fails.
   const originalPlatform = globalThis.wx
   const music = new FakeInnerAudioContext()
@@ -416,7 +416,7 @@ test('looping music survives an unavailable effects audio context', function () 
 
   // Then: packaged BGM still starts and remains the active fallback.
   assert.equal(music.src, 'music/bgm.mp3')
-  assert.equal(music.loop, true)
+  assert.equal(music.loop, false)
   assert.equal(music.playCount, 1)
 })
 
@@ -454,8 +454,9 @@ test('each launch can randomly select every restored background track', function
   }
 })
 
-test('background music changes every minute without immediately repeating', function () {
-  // Given: an unlocked track and deterministic rolls that would otherwise repeat it.
+test('music rotation falls back to a timed change when track ends are unobservable', function () {
+  // Given: an unlocked track on a device exposing neither onEnded nor duration,
+  // with deterministic rolls that would otherwise repeat the track.
   const originalPlatform = globalThis.wx
   const music = new FakeInnerAudioContext()
   globalThis.wx = { createInnerAudioContext: function () { return music } }
@@ -477,6 +478,156 @@ test('background music changes every minute without immediately repeating', func
     assert.notEqual(secondTrack, openingTrack)
     assert.notEqual(music.src, secondTrack)
     assert.equal(music.playCount, 3)
+  } finally {
+    globalThis.wx = originalPlatform
+  }
+})
+
+test('tracks play through in full and rotate once at the natural end', function () {
+  // Given: an unlocked device whose audio context reports playhead and duration.
+  const originalPlatform = globalThis.wx
+  const music = new FakeFullPlaybackMusicContext(30)
+  globalThis.wx = { createInnerAudioContext: function () { return music } }
+  const { Synth } = require('../assets/scripts/synth.ts')
+  const synth = new Synth(function () { return null }, function () { return 0 })
+
+  // When: the opening track reaches its natural end, twice in a row.
+  try {
+    synth.unlock()
+    assert.equal(music.playCount, 1)
+    const openingTrack = music.src
+    music.end()
+    const secondTrack = music.src
+
+    // Then: rotation switches tracks exactly once and resets the playhead.
+    assert.equal(music.playCount, 2)
+    assert.notEqual(secondTrack, openingTrack)
+    assert.equal(music.currentTime, 0)
+    music.end()
+    assert.equal(music.playCount, 2)
+  } finally {
+    globalThis.wx = originalPlatform
+  }
+})
+
+test('duration polling rotates tracks when end callbacks are unavailable', function () {
+  // Given: a device that exposes currentTime and duration but not onEnded.
+  const originalPlatform = globalThis.wx
+  const music = new FakeDurationOnlyMusicContext()
+  globalThis.wx = { createInnerAudioContext: function () { return music } }
+  const { Synth } = require('../assets/scripts/synth.ts')
+  const synth = new Synth(function () { return null }, function () { return 0 })
+
+  // When: the integrated music clock is re-anchored onto a nearly finished playhead.
+  try {
+    synth.unlock()
+    const openingTrack = music.src
+    synth.update(0, false)
+    music.currentTime = 29.95
+    synth.update(1, false)
+
+    // Then: the backup poll rotates before the track can fall silent.
+    assert.equal(music.playCount, 2)
+    assert.notEqual(music.src, openingTrack)
+    assert.equal(music.currentTime, 0)
+  } finally {
+    globalThis.wx = originalPlatform
+  }
+})
+
+test('beat snapshots lock to the analyzed grid of the playing track', function () {
+  // Given: playback of grid-pressure.mp3, whose analyzed grid is 140 BPM at 0.399s.
+  const originalPlatform = globalThis.wx
+  const music = new FakeFullPlaybackMusicContext(480)
+  globalThis.wx = { createInnerAudioContext: function () { return music } }
+  const { Synth } = require('../assets/scripts/synth.ts')
+  const synth = new Synth(function () { return null }, function () { return 0 })
+
+  // When: deterministic rolls rotate from the unmapped bgm.mp3 onto the mapped track.
+  try {
+    synth.unlock()
+    assert.equal(synth.beatSnapshot(), null)
+    music.end()
+    assert.equal(music.src, 'music/grid-pressure.mp3')
+    synth.update(10, false)
+    music.currentTime = 10.5
+    synth.update(10.6, false)
+
+    // Then: the snapshot exposes the track's grid anchored at the observed playhead.
+    const beat = synth.beatSnapshot()
+    assert.ok(beat)
+    const secondsPerBeat = 60 / 140
+    assert.ok(Math.abs(beat.secondsPerBeat - secondsPerBeat) < 1e-9)
+    const nextIndex = Math.floor((10.5 - 0.399) / secondsPerBeat) + 1
+    const expectedIn = 0.399 + nextIndex * secondsPerBeat - 10.5
+    assert.ok(Math.abs(beat.nextBeatIn - expectedIn) < 1e-6, `nextBeatIn ${beat.nextBeatIn} vs ${expectedIn}`)
+    assert.equal(beat.nextBeatIndex - 4096, nextIndex)
+  } finally {
+    globalThis.wx = originalPlatform
+  }
+})
+
+test('fallback metronome exposes the beat clock for rhythm spawning', function () {
+  // Given: an unlocked audio context and no packaged music on this platform.
+  const { Synth } = require('../assets/scripts/synth.ts')
+  const context = new FakeAudioContext()
+  const synth = new Synth(function () { return context })
+  synth.unlock()
+
+  // When: the metronome fires its first step and waits inside the second.
+  synth.update(0, true)
+  synth.update(0.1, true)
+
+  // Then: the snapshot counts down to the next metronome step.
+  const beat = synth.beatSnapshot()
+  assert.ok(beat)
+  assert.equal(beat.secondsPerBeat, 0.36)
+  assert.ok(Math.abs(beat.nextBeatIn - 0.26) < 1e-9)
+  assert.equal(beat.nextBeatIndex, 1)
+})
+
+test('beat maps stay consistent with the packaged soundtrack', function () {
+  // Given: the beat maps generated by scripts/analyze-beats.js.
+  const { BEATMAPS } = require('../assets/scripts/beatmaps.ts')
+  const shipped = ['bgm.mp3', 'grid-pressure.mp3', 'grid-runner-pulse.mp3', 'gravity-coin.mp3', 'gravity-coin-alt.mp3']
+
+  // Then: at least one shipped track carries a map and every map is well formed.
+  const mapped = Object.keys(BEATMAPS)
+  assert.ok(mapped.length >= 1, 'at least one track must carry a beat map')
+  for (const name of mapped) {
+    assert.ok(shipped.includes(name), `${name} is not a shipped track`)
+    const beatmap = BEATMAPS[name]
+    assert.ok(beatmap.bpm >= 70 && beatmap.bpm <= 180, `${name} bpm ${beatmap.bpm} out of range`)
+    assert.ok(beatmap.offset >= 0 && beatmap.offset < 60 / beatmap.bpm, `${name} offset ${beatmap.offset} outside one beat`)
+  }
+})
+
+test('WeChat boot loads the display font through the documented path-string API', function () {
+  // Given: a base library (3.16.2+) whose wx.loadFont takes a font file path
+  // and returns the family name the runtime registered the face under.
+  const originalPlatform = globalThis.wx
+  const loadFontCalls = []
+  globalThis.wx = {
+    createCanvas: function () { return new FakeWxCanvas() },
+    loadFont: function (path) {
+      loadFontCalls.push(path)
+      return 'DingTalk JinBuTi'
+    }
+  }
+
+  // When: the platform boots and a display label rasterizes.
+  try {
+    const { WeChatPlatform } = require('../assets/scripts/platform.ts')
+    const { TextLabel } = require('../assets/scripts/text-surface.ts')
+    const platform = new WeChatPlatform()
+    const label = new TextLabel({ width: 200, height: 80, fontSize: 32, lineHeight: 36, outlineWidth: 2, align: 'center', display: true }, platform.createRaster)
+    label.setText('几何空战')
+    platform.rasterizeLabel(label)
+
+    // Then: the font file is requested by path string, not an options object,
+    // and the raster addresses the runtime-assigned family.
+    assert.deepEqual(loadFontCalls, ['fonts/DingTalk-JinBuTi.ttf'])
+    assert.ok(label.raster.context.font.includes("'DingTalk JinBuTi'"))
   } finally {
     globalThis.wx = originalPlatform
   }
@@ -692,5 +843,49 @@ class FakeInnerAudioContext {
 
   play() {
     this.playCount += 1
+  }
+}
+
+class FakeFullPlaybackMusicContext {
+  constructor(duration) {
+    this.loop = false
+    this.autoplay = false
+    this.volume = 0
+    this.src = ''
+    this.currentTime = 0
+    this.duration = duration
+    this.playCount = 0
+    this.endedCallbacks = []
+  }
+
+  play() {
+    this.playCount += 1
+    this.currentTime = 0
+  }
+
+  onEnded(callback) {
+    this.endedCallbacks.push(callback)
+  }
+
+  end() {
+    this.currentTime = this.duration
+    for (const callback of this.endedCallbacks) callback()
+  }
+}
+
+class FakeDurationOnlyMusicContext {
+  constructor() {
+    this.loop = false
+    this.autoplay = false
+    this.volume = 0
+    this.src = ''
+    this.currentTime = 0
+    this.duration = 30
+    this.playCount = 0
+  }
+
+  play() {
+    this.playCount += 1
+    this.currentTime = 0
   }
 }

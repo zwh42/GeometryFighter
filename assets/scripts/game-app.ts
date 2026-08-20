@@ -54,6 +54,15 @@ const GRID_SPRING_STIFFNESS = 90
 const GRID_SPRING_DAMPING = 7.5
 const GRID_WAKE_RADIUS = 80
 const GRID_WAKE_FORCE_SCALE = 0.12
+// Every live enemy bends the grid toward itself proportional to its bulk:
+// strength scales with art radius (squared) and mass, reach with radius and
+// sqrt(mass) so a feeding blackhole slowly widens its gravity well.
+const GRID_WELL_STRENGTH = 9
+const GRID_WELL_REACH_BASE = 110
+const GRID_WELL_REACH_SCALE = 6
+const GRID_WELL_RADIUS_REFERENCE = 13
+// Keeps stacked wells from folding lattice points across cells.
+const GRID_WARP_CLAMP = 90
 const QUALITY_PARTICLE_BUDGETS = [Math.floor(MAX_PARTICLES * 0.4), Math.floor(MAX_PARTICLES * 0.7), MAX_PARTICLES]
 const HIGH_SCORE_KEY = 'geometry-fighter-high-score'
 const HIGH_SCORE_WRITE_INTERVAL = 2
@@ -183,7 +192,7 @@ export class GameApp {
   private readonly ripples: Ripple[] = []
   private readonly playerTrail: TrailPoint[] = []
   private readonly stars: Star[] = []
-  private readonly activeBlackholes: Enemy[] = []
+  private readonly gridWells: number[] = []
   private readonly activeGridRipples: Ripple[] = []
   private readonly gridLattice = new ReactiveGridLattice(GRID_SPRING_STIFFNESS, GRID_SPRING_DAMPING)
   private readonly labels: TextLabel[] = []
@@ -397,8 +406,10 @@ export class GameApp {
     this.slowMotion = Math.max(0, this.slowMotion - dt)
     const timeScale = this.slowMotion > 0 ? 0.32 + 0.68 * (1 - this.slowMotion / DEATH_SLOW_SECONDS) : 1
     const scaledDt = dt * timeScale
-    this.world.update(scaledDt, this.controls)
+    // Synth updates first so this frame's world update sees the freshest beat
+    // snapshot instead of one lagging a frame behind the audible grid.
     this.synth.update(this.time, this.world.state === 'playing')
+    this.world.update(scaledDt, this.controls, this.synth.beatSnapshot())
     this.controls.start = false
     this.controls.pause = false
     this.processWorldEvents(this.world.consumeEvents())
@@ -625,9 +636,19 @@ export class GameApp {
 
   private prepareWarpedGrid(spacing: number): void {
     const layout = this.gridLayout
-    this.activeBlackholes.length = 0
+    this.gridWells.length = 0
     for (const enemy of this.world.enemies) {
-      if (!enemy.dead && enemy.kind === 'blackhole') this.activeBlackholes.push(enemy)
+      if (enemy.dead) continue
+      const grace = enemy.spawnGrace > 0 ? enemy.spawnGrace : 0.45
+      const materializing = clamp(enemy.spawnTimer / grace, 0, 1)
+      if (materializing >= 1) continue
+      const bulk = ENEMY_ART_RADIUS[enemy.kind] / GRID_WELL_RADIUS_REFERENCE
+      this.gridWells.push(
+        enemy.x,
+        enemy.y,
+        GRID_WELL_REACH_BASE + ENEMY_ART_RADIUS[enemy.kind] * GRID_WELL_REACH_SCALE * Math.sqrt(enemy.mass),
+        GRID_WELL_STRENGTH * enemy.mass * bulk * bulk * (1 - materializing)
+      )
     }
     this.activeGridRipples.length = 0
     const firstRipple = Math.max(0, this.ripples.length - MAX_GRID_WARP_RIPPLES)
@@ -662,13 +683,14 @@ export class GameApp {
         output.y += dy / distance * force
       }
     }
-    for (const enemy of this.activeBlackholes) {
-      const dx = enemy.x - x
-      const dy = enemy.y - y
-      if (Math.abs(dx) > 290 || Math.abs(dy) > 290) continue
+    for (let index = 0; index < this.gridWells.length; index += 4) {
+      const dx = this.gridWells[index] - x
+      const dy = this.gridWells[index + 1] - y
+      const reach = this.gridWells[index + 2]
+      if (Math.abs(dx) > reach || Math.abs(dy) > reach) continue
       const distance = Math.max(20, length(dx, dy))
-      if (distance < 290) {
-        const force = (1 - distance / 290) * 38 * enemy.mass
+      if (distance < reach) {
+        const force = (1 - distance / reach) * this.gridWells[index + 3]
         output.x += dx / distance * force
         output.y += dy / distance * force
       }
@@ -686,6 +708,12 @@ export class GameApp {
           output.y += dy / distance * force
         }
       }
+    }
+    const magnitude = length(output.x, output.y)
+    if (magnitude > GRID_WARP_CLAMP) {
+      const scale = GRID_WARP_CLAMP / magnitude
+      output.x *= scale
+      output.y *= scale
     }
   }
 
@@ -883,7 +911,8 @@ export class GameApp {
     if (this.qualityTier >= 1) {
       for (const enemy of this.world.enemies) {
         if (enemy.dead) continue
-        const spawnAlpha = enemy.spawnTimer > 0 ? 1 - enemy.spawnTimer / 0.45 : 1
+        const spawnAlpha = enemy.spawnTimer > 0 ? 1 - enemy.spawnTimer / enemy.spawnGrace : 1
+        if (enemy.spawnTimer > 0 && enemy.spawnGrace > 0.6) this.drawSpawnTelegraph(renderer, enemy)
         this.drawEnemy(renderer, enemy, true, spawnAlpha)
       }
       for (const geom of this.world.geoms) if (!geom.dead) this.drawGeom(renderer, geom, true)
@@ -896,7 +925,7 @@ export class GameApp {
     }
     for (const enemy of this.world.enemies) {
       if (enemy.dead) continue
-      const spawnAlpha = enemy.spawnTimer > 0 ? 1 - enemy.spawnTimer / 0.45 : 1
+      const spawnAlpha = enemy.spawnTimer > 0 ? 1 - enemy.spawnTimer / enemy.spawnGrace : 1
       this.drawEnemy(renderer, enemy, false, spawnAlpha)
     }
     for (const geom of this.world.geoms) if (!geom.dead) this.drawGeom(renderer, geom, false)
@@ -1007,6 +1036,15 @@ export class GameApp {
       renderer.setColor(SUPER_WEAPON_ART.icon, index < supply.health ? 255 : 50)
       renderer.disc(supply.x + Math.cos(angle) * (radius + SUPER_WEAPON_ART.durabilityOrbit), supply.y + Math.sin(angle) * (radius + SUPER_WEAPON_ART.durabilityOrbit), SUPER_WEAPON_ART.durabilityRadius, 6)
     }
+  }
+
+  // Slow arena manifests announce themselves with a shrinking halo so the
+  // player can read where pressure is about to appear.
+  private drawSpawnTelegraph(renderer: VectorRenderer, enemy: Enemy): void {
+    const progress = 1 - enemy.spawnTimer / enemy.spawnGrace
+    renderer.setColor(this.world.enemyColor(enemy.kind), Math.floor((1 - progress) * 90))
+    renderer.setWidth(1.6)
+    renderer.ring(enemy.x, enemy.y, enemy.radius * (5.5 - progress * 3.9))
   }
 
   private drawEnemy(renderer: VectorRenderer, enemy: Enemy, glow: boolean, alpha: number): void {

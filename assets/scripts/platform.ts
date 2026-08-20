@@ -77,16 +77,20 @@ const SANS_STACK = "system-ui,-apple-system,'PingFang SC','Noto Sans SC',sans-se
 // other label stays on the stacks above.
 const DISPLAY_FONT_FAMILY = 'jihekongzhan-title'
 const DISPLAY_FONT_SOURCE = 'fonts/DingTalk-JinBuTi.ttf'
-const DISPLAY_STACK = `'${DISPLAY_FONT_FAMILY}','PingFang SC','Noto Sans SC',sans-serif`
+// wx.loadFont registers the face under the family name baked into the TTF
+// ("DingTalk JinBuTi"), not under a caller-chosen name like the web FontFace
+// API, so the WeChat platform adopts the returned name here.
+let displayFontFamily = DISPLAY_FONT_FAMILY
 
 function fontFor(config: LabelConfig): string {
-  if (config.display) return `${Math.round(config.fontSize * TEXT_RASTER_SCALE)}px ${DISPLAY_STACK}`
+  if (config.display) return `${Math.round(config.fontSize * TEXT_RASTER_SCALE)}px '${displayFontFamily}','PingFang SC','Noto Sans SC',sans-serif`
   return `700 ${Math.round(config.fontSize * TEXT_RASTER_SCALE)}px ${config.monospace ? MONO_STACK : SANS_STACK}`
 }
 
-// The display face registers after boot (wx.loadFont and FontFace are async),
-// so each platform gates a one-shot notification; the shell then re-rasterizes
-// labels that were first drawn against the system CJK fallback.
+// The display face registers during platform boot (synchronously through
+// wx.loadFont, asynchronously through the web FontFace), so each platform
+// gates a one-shot notification; the shell then re-rasterizes labels that
+// were first drawn against the system CJK fallback.
 class DisplayFontGate {
   private ready = false
   private listeners: (() => void)[] = []
@@ -157,7 +161,16 @@ interface MiniGameApi {
   createCanvas(): unknown
   createOffscreenCanvas?(options?: { readonly type?: '2d' | 'webgl'; readonly width?: number; readonly height?: number }): unknown
   createWebAudioContext?(): AudioContext
-  createInnerAudioContext?(): { loop: boolean; autoplay: boolean; volume: number; src: string; play?(): void }
+  createInnerAudioContext?(): {
+    loop: boolean
+    autoplay: boolean
+    volume: number
+    src: string
+    play?(): void
+    readonly currentTime?: number
+    readonly duration?: number
+    onEnded?(callback: () => void): void
+  }
   loadSubpackage?(options: { readonly name: string; readonly success: () => void }): void
   getWindowInfo?(): MiniGameWindowInfo
   getSystemInfoSync?(): MiniGameWindowInfo
@@ -173,7 +186,7 @@ interface MiniGameApi {
   getStorageSync(key: string): string
   setStorageSync(key: string, value: string): void
   setPreferredFramesPerSecond?(fps: number): void
-  loadFont?(options: { readonly family: string; readonly source: string; readonly success?: () => void; readonly fail?: () => void }): void
+  loadFont?(path: string): string
 }
 
 export type { MiniGameApi }
@@ -246,11 +259,15 @@ export class WeChatPlatform implements PlatformHost {
     this.glCanvas = api.createCanvas()
     this.createRaster = (width, height) => createWeChatRaster(api, width, height)
     api.setPreferredFramesPerSecond?.(60)
-    api.loadFont?.({
-      family: DISPLAY_FONT_FAMILY,
-      source: DISPLAY_FONT_SOURCE,
-      success: () => this.displayFont.notify()
-    })
+    try {
+      const loadedFamily = api.loadFont?.(DISPLAY_FONT_SOURCE)
+      if (typeof loadedFamily === 'string' && loadedFamily !== '' && loadedFamily !== 'sans-serif') {
+        displayFontFamily = loadedFamily
+      }
+    } catch (error) {
+      // An unreadable font leaves labels on the system CJK stacks below.
+    }
+    this.displayFont.notify()
   }
 
   onFontLoaded(listener: () => void): void {

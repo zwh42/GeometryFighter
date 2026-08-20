@@ -1,6 +1,10 @@
 export const COLORS = {
   background: '#000006',
   grid: '#2a7190',
+  // Classic warping-grid blue (RGB 30, 30, 139) from the original-school
+  // vector shooters: interior lattice lines sit deep and quiet so the cyan
+  // boundary and combat feedback stay the loudest layer.
+  gridDeep: '#1e1e8b',
   gridHot: '#15d8ff',
   white: '#ffffff',
   hud: '#b9ff36',
@@ -117,8 +121,8 @@ export interface GridLineStyle {
 }
 
 export const GRID_LINES = {
-  glow: { lineWidth: STROKES.gridGlow, color: COLORS.gridHot, alpha: 23 },
-  main: { lineWidth: STROKES.gridMain, color: COLORS.gridHot, alpha: 72 }
+  glow: { lineWidth: STROKES.gridGlow, color: COLORS.gridDeep, alpha: 28 },
+  main: { lineWidth: STROKES.gridMain, color: COLORS.gridDeep, alpha: 88 }
 } as const satisfies Record<string, GridLineStyle>
 
 export const FIGHTER_ART = {

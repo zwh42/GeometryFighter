@@ -22,6 +22,7 @@ Geometry Fighter is a dark neon arcade instrument: a near-black arena, electrica
 |---|---|---:|---|
 | Arena | `background` | `#000006` | Primary playfield |
 | Grid | `grid` | `#2a7190` | Sparse resting grid lines |
+| Grid deep | `gridDeep` | `#1e1e8b` | Interior lattice lines (classic warping-grid blue) |
 | Grid energy | `gridHot` | `#15d8ff` | Distortion and strong grid feedback |
 | Primary light | `white` | `#ffffff` | Player hull, borders, high-emphasis text |
 | Reward / HUD | `hud` | `#b9ff36` | Score, supply, positive reward |

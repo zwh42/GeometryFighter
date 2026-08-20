@@ -263,3 +263,47 @@ test('a one-minute maximum-load soak renders every frame inside fixed budgets', 
   assert.ok(sink.maxVertices < 131072, `vertex budget exceeded: ${sink.maxVertices}`)
   assert.ok(sink.maxVertices > 1000, `expected heavy combat frames, got ${sink.maxVertices}`)
 })
+
+test('every enemy bends the grid toward itself in proportion to its bulk', function () {
+  // Given: a playing field whose lattice point at rest sits at (304, 0), well
+  // clear of the player's own grid dimple, and an enemy pulling from (280, 0).
+  // The under-damped lattice rings while the enemy chases the player, so the
+  // meaningful measurement is the peak bend toward the enemy.
+  function warpFrom(kind, frames) {
+    const { app } = makeApp()
+    app.world.reset()
+    const enemy = app.world.spawnEnemy(kind, 280, 0)
+    enemy.spawnTimer = 0
+    app.update(1 / 60)
+    let probeIndex = -1
+    let probeDistance = Infinity
+    const points = app.gridLattice.points
+    for (let index = 0; index < points.length; index += 1) {
+      const distance = Math.abs(points[index].x - 304) + Math.abs(points[index].y)
+      if (distance < probeDistance) {
+        probeDistance = distance
+        probeIndex = index
+      }
+    }
+    assert.ok(probeDistance < 30, `could not locate the lattice point near (304, 0), best ${probeDistance.toFixed(0)}`)
+    let peakBend = 0
+    for (let frame = 0; frame < frames; frame += 1) {
+      app.update(1 / 60)
+      peakBend = Math.max(peakBend, 304 - points[probeIndex].x)
+    }
+    return { app, enemy, probe: points[probeIndex], peakBend }  }
+
+  // When: a grunt and a blackhole of equal footing each occupy the same spot.
+  const gruntRun = warpFrom('grunt', 60)
+  const holeRun = warpFrom('blackhole', 60)
+
+  // Then: both bend the neighboring lattice point toward themselves, and the
+  // heavier blackhole bends it far more than the grunt.
+  assert.ok(gruntRun.peakBend > 5, `grunt barely warped the grid: ${gruntRun.peakBend.toFixed(2)}`)
+  assert.ok(holeRun.peakBend > gruntRun.peakBend * 2, `expected bulk-proportional warp, got ${holeRun.peakBend.toFixed(2)} vs ${gruntRun.peakBend.toFixed(2)}`)
+
+  // And: the bend relaxes back once the enemy is gone.
+  gruntRun.enemy.dead = true
+  for (let frame = 0; frame < 150; frame += 1) gruntRun.app.update(1 / 60)
+  assert.ok(304 - gruntRun.probe.x < gruntRun.peakBend * 0.5, 'grid did not relax after the enemy died')
+})

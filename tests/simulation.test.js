@@ -432,6 +432,129 @@ test('a three-minute soak run keeps every interacting subsystem inside its budge
   assert.ok(world.geoms.length <= 90)
 })
 
+test('beat snapshots quantize spawn waves onto the eighth-note grid', function () {
+  // Given: a playing world paced at two beats per second with the next boundary a quarter second away.
+  const world = new GeometryWorld()
+  world.reset()
+  world.enemies.length = 0
+  const beat = { secondsPerBeat: 0.5, nextBeatIn: 0.25, nextBeatIndex: 4100 }
+
+  // When: frames advance until the opening wave fires on the aligned beat.
+  for (let frame = 0; frame < 40 && world.enemies.length === 0; frame += 1) {
+    world.update(0.016, idleControls(), beat)
+  }
+
+  // Then: the opening wave fired exactly once and the next wave lands on the grid.
+  assert.equal(world.enemies.length, 1)
+  assert.equal(world.spawnClock, 1)
+})
+
+test('downbeat landings spawn one extra enemy per opening batch', function () {
+  // Given: late-game pacing whose interval floors at 0.2s, landing half a beat away.
+  const batches = [4100, 4101].map(function (nextBeatIndex) {
+    const world = new GeometryWorld()
+    world.reset()
+    world.elapsed = 170
+    world.enemies.length = 0
+    world.beat = { secondsPerBeat: 0.5, nextBeatIn: 0.1, nextBeatIndex }
+
+    // When: a wave spawns onto that grid position.
+    world.spawnWave()
+    return world.enemies.length
+  })
+
+  // Then: the downbeat batch grows by one over the plain beat batch.
+  assert.equal(batches[0], batches[1] + 1)
+})
+
+test('runs without a beat keep the legacy jittered pacing', function () {
+  // Given: a freshly reset world with no beat context (unmapped track or tests).
+  const world = new GeometryWorld()
+  world.reset()
+
+  // When: the opening wave schedules the next one.
+  world.spawnWave()
+
+  // Then: the legacy interval-with-jitter band is preserved.
+  assert.ok(world.spawnClock >= 0.2 * 0.78 - 1e-9)
+  assert.ok(world.spawnClock <= 1.08 * 1.24 + 1e-9)
+})
+
+test('on-screen manifest spawns stay inside the arena and clear of the player', function () {
+  // Given: a freshly reset world with the player resting at the origin.
+  const world = new GeometryWorld()
+  world.reset()
+  world.enemies.length = 0
+
+  // When: twenty enemies manifest on screen back to back.
+  for (let index = 0; index < 20; index += 1) {
+    const enemy = world.spawnEnemyOnscreen('grunt')
+    const dx = enemy.x - world.player.x
+    const dy = enemy.y - world.player.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    const halfWidth = world.width * 0.5
+    const halfHeight = world.height * 0.5
+    const insideArena = Math.abs(enemy.x) <= halfWidth - 120 && Math.abs(enemy.y) <= halfHeight - 120
+
+    // Then: in-arena manifests keep the documented berth and long telegraph,
+    // and any fallback still comes from outside the arena.
+    if (insideArena) {
+      assert.ok(distance >= 380, `manifest at (${enemy.x.toFixed(0)}, ${enemy.y.toFixed(0)}) only ${distance.toFixed(0)} from player`)
+      assert.equal(enemy.spawnTimer, 1)
+      assert.equal(enemy.spawnGrace, 1)
+    } else {
+      assert.ok(
+        Math.abs(enemy.x) >= halfWidth + 34 || Math.abs(enemy.y) >= halfHeight + 34,
+        'fallback must come from outside the arena'
+      )
+    }
+  }
+})
+
+test('manifest spawns ramp in only after the early game', function () {
+  // Given: an early world far below the manifest threshold.
+  const early = new GeometryWorld()
+  early.reset()
+  early.elapsed = 20
+  for (let wave = 0; wave < 10; wave += 1) {
+    early.enemies.length = 0
+    early.spawnWave()
+    for (const enemy of early.enemies) {
+      assert.ok(
+        Math.abs(enemy.x) >= early.width * 0.5 + 34 || Math.abs(enemy.y) >= early.height * 0.5 + 34,
+        'early waves must only stream in from the edges'
+      )
+    }
+  }
+
+  // And: a late world well past it, where manifests carry the longer grace.
+  const late = new GeometryWorld()
+  late.reset()
+  late.elapsed = 170
+  let manifests = 0
+  for (let wave = 0; wave < 10; wave += 1) {
+    late.enemies.length = 0
+    late.spawnWave()
+    for (const enemy of late.enemies) {
+      if (enemy.spawnGrace === 1) manifests += 1
+    }
+  }
+
+  // Then: pressure builds inside the arena in the late game.
+  assert.ok(manifests >= 1, `expected at least one manifest across 10 late waves, saw ${manifests}`)
+})
+
+test('edge spawns carry the standard short materializing grace', function () {
+  // Given: a freshly reset world issuing a plain edge spawn.
+  const world = new GeometryWorld()
+  world.reset()
+  const enemy = world.spawnEnemy('grunt')
+
+  // Then: the materializing window is recorded alongside its countdown.
+  assert.equal(enemy.spawnTimer, 0.45)
+  assert.equal(enemy.spawnGrace, 0.45)
+})
+
 function idleControls() {
   return { move: { x: 0, y: 0 }, aim: { x: 0, y: 0 }, engaged: false, start: false, pause: false }
 }

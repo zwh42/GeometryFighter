@@ -49,3 +49,6 @@ yarn-error.log*
 *.bak
 *.orig
 *.rej
+
+# ZCode 本地会话目录
+.zcode/

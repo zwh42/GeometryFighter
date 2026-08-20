@@ -1,5 +1,6 @@
 import { COLORS, ENEMY_ART_COLOR, GEOM_ART, SUPER_EVENT_ART, SUPER_WEAPON_ART } from './design-tokens.ts'
 import { SpatialIndex } from './spatial-index.ts'
+import type { BeatState } from './synth.ts'
 
 export type EnemyKind = 'wanderer' | 'grunt' | 'weaver' | 'spinner' | 'snake' | 'repulsar' | 'blackhole'
 export type GameState = 'title' | 'playing' | 'paused' | 'gameover'
@@ -47,6 +48,7 @@ export interface Enemy extends Vector {
   age: number
   phase: number
   spawnTimer: number
+  spawnGrace: number
   dead: boolean
   mass: number
   segments: SnakeSegment[]
@@ -167,6 +169,13 @@ const GEOM_COLLECT_RADIUS = 26
 const GEOMS_PER_MULTIPLIER = 6
 export const MAX_MULTIPLIER = 25
 export const SPAWN_MIN_DISTANCE = 250
+// On-screen "manifest" spawns: enemies fade in anywhere inside the arena to
+// build pressure. They telegraph longer than edge spawns and must keep a much
+// wider berth from the player to stay fair.
+export const ONSCREEN_SPAWN_GRACE = 1.0
+export const SPAWN_MIN_DISTANCE_ONSCREEN = 380
+export const ONSCREEN_SPAWN_MARGIN = 120
+const ONSCREEN_SPAWN_ATTEMPTS = 8
 export const BLACKHOLE_ERUPT_MASS = 2.3
 export const BLACKHOLE_ERUPT_GRUNTS = 6
 const WEAVER_DODGE_RANGE = 120
@@ -219,6 +228,8 @@ export class GeometryWorld {
   nextSupply = 100000
   spawnClock = 0
   supplyClock = 12
+  beat: BeatState | null = null
+  private beatSyncPending = false
   fireClock = 0
   fireHeading = 0
   hasFireHeading = false
@@ -287,6 +298,7 @@ export class GeometryWorld {
     this.nextLife = 75000
     this.nextSupply = 100000
     this.spawnClock = 0.7
+    this.beatSyncPending = true
     this.supplyClock = 12 + this.random() * 6
     this.fireClock = 0
     this.fireHeading = 0
@@ -305,7 +317,8 @@ export class GeometryWorld {
     this.pushEvent('wave', 0, 0, COLORS.gridHot, 1, 'GRID LEVEL 1')
   }
 
-  update(dt: number, controls: ControlState): void {
+  update(dt: number, controls: ControlState, beat?: BeatState | null): void {
+    this.beat = beat ?? null
     if (controls.start && (this.state === 'title' || this.state === 'gameover')) this.reset()
     if (controls.pause && (this.state === 'playing' || this.state === 'paused')) {
       this.state = this.state === 'playing' ? 'paused' : 'playing'
@@ -323,6 +336,9 @@ export class GeometryWorld {
     this.updateAllies(step)
     this.updateGeoms(step)
     this.resolveCollisions()
+    // Land the opening wave of a run on the next beat so the groove is
+    // audible from the first spawn instead of from the second wave on.
+    if (this.beatSyncPending && this.beat && this.spawnClock > this.beat.nextBeatIn) this.spawnClock = this.beat.nextBeatIn
     this.spawnClock -= step
     if (this.spawnClock <= 0) this.spawnWave()
     this.supplyClock -= step
@@ -655,6 +671,7 @@ export class GeometryWorld {
       const angle = index / BLACKHOLE_ERUPT_GRUNTS * Math.PI * 2 + this.random() * 0.4
       const grunt = this.spawnEnemy('grunt', x + Math.cos(angle) * 52 * this.unitsPerPixel, y + Math.sin(angle) * 52 * this.unitsPerPixel)
       grunt.spawnTimer = 0.35
+      grunt.spawnGrace = 0.35
       grunt.vx = Math.cos(angle) * 220
       grunt.vy = Math.sin(angle) * 220
     }
@@ -935,11 +952,39 @@ export class GeometryWorld {
       this.wave = nextWave
       this.pushEvent('wave', 0, 88, COLORS.gridHot, this.wave, `GRID LEVEL ${this.wave}`)
     }
+    this.beatSyncPending = false
     const cap = Math.min(MAX_LIVE_ENEMIES, 24 + this.wave * 4)
     const living = this.enemies.reduce((count, enemy) => count + (enemy.dead ? 0 : 1), 0)
-    const batch = Math.min(7, 1 + Math.floor(this.elapsed / 32))
-    for (let index = 0; index < batch && living + index < cap; index += 1) this.spawnEnemy(this.pickEnemy())
-    this.spawnClock = Math.max(0.2, 1.08 - this.elapsed * 0.0055) * (0.78 + this.random() * 0.46)
+    const interval = Math.max(0.2, 1.08 - this.elapsed * 0.0055)
+    const schedule = this.beat === null ? null : this.scheduleOnBeat(this.beat, interval)
+    let batch = Math.min(7, 1 + Math.floor(this.elapsed / 32))
+    // Downbeat landings open with a slightly bigger rush so each bar pulses.
+    if (schedule?.landingIsDownbeat) batch += 1
+    // Later waves let part of the batch manifest inside the arena instead of
+    // streaming in from the edges; blackholes stay edge-bound so their gravity
+    // can never blindside the player.
+    const manifestChance = clamp((this.elapsed - 40) / 160, 0, 0.3)
+    for (let index = 0; index < batch && living + index < cap; index += 1) {
+      const kind = this.pickEnemy()
+      if (kind !== 'blackhole' && this.random() < manifestChance) this.spawnEnemyOnscreen(kind)
+      else this.spawnEnemy(kind)
+    }
+    this.spawnClock = schedule ? schedule.nextSpawnIn : interval * (0.78 + this.random() * 0.46)
+  }
+
+  // Quantizes the pacing interval onto the music's eighth-note grid: the next
+  // wave fires on the first grid point roughly `interval` seconds away, so the
+  // legacy difficulty curve is preserved while spawns lock onto the beat.
+  private scheduleOnBeat(beat: BeatState, interval: number): { nextSpawnIn: number; landingIsDownbeat: boolean } {
+    const halfBeat = beat.secondsPerBeat * 0.5
+    const halfBeats = Math.min(16, Math.max(1, Math.round(interval / halfBeat)))
+    const nextSpawnIn = beat.nextBeatIn + (halfBeats - 1) * halfBeat
+    // The wave lands (halfBeats - 1) half-beats past the upcoming boundary, so
+    // only an odd count still hits a whole beat — and only every fourth of
+    // those is a downbeat.
+    const landingIsDownbeat =
+      halfBeats % 2 === 1 && (((beat.nextBeatIndex + (halfBeats - 1) / 2) % 4) + 4) % 4 === 0
+    return { nextSpawnIn, landingIsDownbeat }
   }
 
   pickEnemy(): EnemyKind {
@@ -950,6 +995,27 @@ export class GeometryWorld {
     if (this.elapsed > 52) pool.push('repulsar')
     if (this.elapsed > 72 && this.random() < 0.15) return 'blackhole'
     return pool[Math.floor(this.random() * pool.length)]
+  }
+
+  // Slowly materializes an enemy somewhere inside the arena. The long grace
+  // keeps it inert and harmless while its telegraph plays out; the generous
+  // player berth keeps the reveal fair.
+  spawnEnemyOnscreen(kind: EnemyKind): Enemy {
+    const halfWidth = this.width * 0.5 - ONSCREEN_SPAWN_MARGIN
+    const halfHeight = this.height * 0.5 - ONSCREEN_SPAWN_MARGIN
+    for (let attempt = 0; attempt < ONSCREEN_SPAWN_ATTEMPTS; attempt += 1) {
+      const spawnX = (this.random() - 0.5) * halfWidth * 2
+      const spawnY = (this.random() - 0.5) * halfHeight * 2
+      const dx = spawnX - this.player.x
+      const dy = spawnY - this.player.y
+      if (dx * dx + dy * dy >= SPAWN_MIN_DISTANCE_ONSCREEN * SPAWN_MIN_DISTANCE_ONSCREEN) {
+        const enemy = this.spawnEnemy(kind, spawnX, spawnY)
+        enemy.spawnTimer = ONSCREEN_SPAWN_GRACE
+        enemy.spawnGrace = ONSCREEN_SPAWN_GRACE
+        return enemy
+      }
+    }
+    return this.spawnEnemy(kind)
   }
 
   spawnEnemy(kind: EnemyKind, x?: number, y?: number): Enemy {
@@ -1000,6 +1066,7 @@ export class GeometryWorld {
       age: 0,
       phase: this.random() * Math.PI * 2,
       spawnTimer: 0.45,
+      spawnGrace: 0.45,
       dead: false,
       mass: 1,
       segments,
